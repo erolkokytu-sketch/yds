@@ -1,0 +1,220 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.yds-player.invalid/schemas/exam-pack.v1.json",
+  "title": "YDS Player Exam Pack v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "title",
+    "year",
+    "term",
+    "language",
+    "durationMinutes",
+    "kind",
+    "source",
+    "scoring",
+    "contentBlocks",
+    "questionGroups",
+    "questionCount",
+    "questions",
+    "answerKey"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "$ref": "#/$defs/id" },
+    "title": { "$ref": "#/$defs/nonEmptyString" },
+    "year": { "type": "integer", "minimum": 2013, "maximum": 2200 },
+    "term": { "$ref": "#/$defs/nonEmptyString" },
+    "language": { "$ref": "#/$defs/nonEmptyString" },
+    "durationMinutes": { "type": "integer", "minimum": 1, "maximum": 1440 },
+    "kind": { "enum": ["official", "practice"] },
+    "source": { "$ref": "#/$defs/source" },
+    "scoring": { "$ref": "#/$defs/scoring" },
+    "contentBlocks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/contentBlock" }
+    },
+    "questionGroups": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/questionGroup" }
+    },
+    "questionCount": { "type": "integer", "minimum": 1 },
+    "questions": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/question" }
+    },
+    "answerKey": { "$ref": "#/$defs/answerKey" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "kind": { "const": "official" } },
+        "required": ["kind"]
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "type": "object",
+            "required": [
+              "publisher",
+              "questionUrl",
+              "answerKeyUrl",
+              "retrievedAt",
+              "completeness",
+              "verification"
+            ],
+            "properties": {
+              "publisher": { "$ref": "#/$defs/nonEmptyString" },
+              "questionUrl": { "type": "string", "format": "uri" },
+              "answerKeyUrl": { "type": "string", "format": "uri" },
+              "retrievedAt": { "type": "string", "format": "date-time" },
+              "completeness": { "enum": ["full", "partial", "sample", "unknown"] },
+              "verification": { "const": "verified" }
+            }
+          },
+          "answerKey": {
+            "type": "object",
+            "properties": {
+              "status": { "const": "verified" }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["completeness", "verification"],
+      "properties": {
+        "publisher": { "$ref": "#/$defs/nonEmptyString" },
+        "questionUrl": { "type": "string", "format": "uri" },
+        "answerKeyUrl": { "type": "string", "format": "uri" },
+        "retrievedAt": { "type": "string", "format": "date-time" },
+        "completeness": { "enum": ["full", "partial", "sample", "unknown"] },
+        "verification": { "enum": ["verified", "unverified"] },
+        "licenseNotes": { "type": "string" }
+      }
+    },
+    "scoring": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "wrongAnswerPenalty", "maximumScore", "status"],
+      "properties": {
+        "type": { "enum": ["correct-count", "scaled-correct-count"] },
+        "wrongAnswerPenalty": { "const": 0 },
+        "maximumScore": { "type": "number", "exclusiveMinimum": 0 },
+        "status": { "enum": ["verified", "unverified"] }
+      }
+    },
+    "contentBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "order", "content"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "type": { "enum": ["passage", "dialogue", "paragraph", "instructions", "other"] },
+        "order": { "type": "integer", "minimum": 1 },
+        "content": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "questionGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "order", "questionIds"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "type": { "enum": ["section", "cloze-set", "reading-set", "other"] },
+        "title": { "$ref": "#/$defs/nonEmptyString" },
+        "order": { "type": "integer", "minimum": 1 },
+        "questionIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/id" }
+        }
+      }
+    },
+    "question": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "number", "type", "prompt", "contentBlockIds", "choices"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "number": { "type": "integer", "minimum": 1 },
+        "type": {
+          "enum": [
+            "vocabulary",
+            "grammar",
+            "cloze",
+            "sentence_completion",
+            "translation",
+            "reading_comprehension",
+            "dialogue_completion",
+            "closest_meaning",
+            "paragraph_completion",
+            "irrelevant_sentence",
+            "other"
+          ]
+        },
+        "prompt": { "$ref": "#/$defs/nonEmptyString" },
+        "contentBlockIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/id" }
+        },
+        "groupId": { "$ref": "#/$defs/id" },
+        "choices": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["A", "B", "C", "D", "E"],
+          "properties": {
+            "A": { "$ref": "#/$defs/nonEmptyString" },
+            "B": { "$ref": "#/$defs/nonEmptyString" },
+            "C": { "$ref": "#/$defs/nonEmptyString" },
+            "D": { "$ref": "#/$defs/nonEmptyString" },
+            "E": { "$ref": "#/$defs/nonEmptyString" }
+          }
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "section": { "$ref": "#/$defs/nonEmptyString" },
+            "translationDirection": { "enum": ["en-to-tr", "tr-to-en"] }
+          }
+        }
+      }
+    },
+    "answerKey": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["revision", "status", "answers"],
+      "properties": {
+        "revision": { "$ref": "#/$defs/nonEmptyString" },
+        "status": { "enum": ["verified", "unverified"] },
+        "verifiedAt": { "type": "string", "format": "date-time" },
+        "answers": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": { "$ref": "#/$defs/id" },
+          "additionalProperties": { "enum": ["A", "B", "C", "D", "E"] }
+        }
+      }
+    }
+  }
+}

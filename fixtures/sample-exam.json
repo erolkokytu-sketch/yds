@@ -1,0 +1,256 @@
+{
+  "schemaVersion": 1,
+  "id": "sample-yds-style-en-2026",
+  "title": "YDS-Style Practice Test — Sample",
+  "year": 2026,
+  "term": "Sample",
+  "language": "English",
+  "durationMinutes": 30,
+  "kind": "practice",
+  "source": {
+    "retrievedAt": "2026-09-26T00:00:00Z",
+    "completeness": "sample",
+    "verification": "verified",
+    "licenseNotes": "Original dummy content created for schema and validator tests; not an ÖSYM exam."
+  },
+  "scoring": {
+    "type": "scaled-correct-count",
+    "wrongAnswerPenalty": 0,
+    "maximumScore": 100,
+    "status": "verified"
+  },
+  "contentBlocks": [
+    {
+      "id": "passage-green-library",
+      "type": "passage",
+      "order": 1,
+      "content": "The fictional town of Lydora opened a small library inside a greenhouse. Readers may borrow books while volunteers study how quiet public spaces affect concentration."
+    },
+    {
+      "id": "passage-night-train",
+      "type": "passage",
+      "order": 2,
+      "content": "A trial night train links two imaginary coastal towns. The service carries bicycles without charge and uses reusable meal containers to reduce waste."
+    },
+    {
+      "id": "dialogue-course",
+      "type": "dialogue",
+      "order": 3,
+      "content": "Mira: Have you chosen a weekend course?\nDeniz: Not yet. I need one that finishes before noon."
+    }
+  ],
+  "questionGroups": [
+    {
+      "id": "group-cloze",
+      "type": "cloze-set",
+      "title": "Questions 3–4",
+      "order": 1,
+      "questionIds": ["q-03", "q-04"]
+    },
+    {
+      "id": "group-reading",
+      "type": "reading-set",
+      "title": "Questions 7–8",
+      "order": 2,
+      "questionIds": ["q-07", "q-08"]
+    }
+  ],
+  "questionCount": 12,
+  "questions": [
+    {
+      "id": "q-01",
+      "number": 1,
+      "type": "vocabulary",
+      "prompt": "The team kept a detailed ---- of every fictional observation.",
+      "contentBlockIds": [],
+      "choices": {
+        "A": "record",
+        "B": "cloud",
+        "C": "corner",
+        "D": "season",
+        "E": "bridge"
+      }
+    },
+    {
+      "id": "q-02",
+      "number": 2,
+      "type": "grammar",
+      "prompt": "If the model works as planned, the researchers ---- it again next month.",
+      "contentBlockIds": [],
+      "choices": {
+        "A": "tested",
+        "B": "will test",
+        "C": "had tested",
+        "D": "were testing",
+        "E": "would have tested"
+      }
+    },
+    {
+      "id": "q-03",
+      "number": 3,
+      "type": "cloze",
+      "prompt": "Which word best describes the library's location?",
+      "contentBlockIds": ["passage-green-library"],
+      "groupId": "group-cloze",
+      "choices": {
+        "A": "temporary",
+        "B": "underground",
+        "C": "greenhouse-based",
+        "D": "mobile",
+        "E": "private"
+      }
+    },
+    {
+      "id": "q-04",
+      "number": 4,
+      "type": "cloze",
+      "prompt": "What do the volunteers examine?",
+      "contentBlockIds": ["passage-green-library"],
+      "groupId": "group-cloze",
+      "choices": {
+        "A": "book prices",
+        "B": "reading speed only",
+        "C": "plant growth",
+        "D": "the effect of quiet spaces on concentration",
+        "E": "building costs"
+      }
+    },
+    {
+      "id": "q-05",
+      "number": 5,
+      "type": "sentence_completion",
+      "prompt": "The meeting was moved online ----.",
+      "contentBlockIds": [],
+      "choices": {
+        "A": "although everyone reached the room",
+        "B": "because the road was closed",
+        "C": "unless the notes are short",
+        "D": "where the garden ends",
+        "E": "despite the blue folder"
+      }
+    },
+    {
+      "id": "q-06",
+      "number": 6,
+      "type": "translation",
+      "prompt": "Choose the best Turkish translation of: The results will be reviewed tomorrow.",
+      "contentBlockIds": [],
+      "choices": {
+        "A": "Sonuçlar dün incelendi.",
+        "B": "Sonuçlar yarın incelenecek.",
+        "C": "Sonuçları yarın inceleyin.",
+        "D": "Sonuçlar her gün değişiyor.",
+        "E": "Sonuçlar henüz açıklanmadı."
+      },
+      "metadata": {
+        "section": "translation",
+        "translationDirection": "en-to-tr"
+      }
+    },
+    {
+      "id": "q-07",
+      "number": 7,
+      "type": "reading_comprehension",
+      "prompt": "What can passengers carry without an extra fee?",
+      "contentBlockIds": ["passage-night-train"],
+      "groupId": "group-reading",
+      "choices": {
+        "A": "bicycles",
+        "B": "cars",
+        "C": "furniture",
+        "D": "pets",
+        "E": "boats"
+      }
+    },
+    {
+      "id": "q-08",
+      "number": 8,
+      "type": "reading_comprehension",
+      "prompt": "Why are reusable containers used?",
+      "contentBlockIds": ["passage-night-train"],
+      "groupId": "group-reading",
+      "choices": {
+        "A": "to shorten the route",
+        "B": "to increase ticket prices",
+        "C": "to reduce waste",
+        "D": "to carry bicycles",
+        "E": "to mark seats"
+      }
+    },
+    {
+      "id": "q-09",
+      "number": 9,
+      "type": "dialogue_completion",
+      "prompt": "Which reply best continues the dialogue?",
+      "contentBlockIds": ["dialogue-course"],
+      "choices": {
+        "A": "The afternoon class starts at three.",
+        "B": "I lost the map yesterday.",
+        "C": "The blue room has no windows.",
+        "D": "This book belongs to Arda.",
+        "E": "Rain is common in winter."
+      }
+    },
+    {
+      "id": "q-10",
+      "number": 10,
+      "type": "closest_meaning",
+      "prompt": "The device is inexpensive, yet it is reliable.",
+      "contentBlockIds": [],
+      "choices": {
+        "A": "The device is reliable despite its low price.",
+        "B": "Only expensive devices are reliable.",
+        "C": "The device is neither cheap nor dependable.",
+        "D": "Its price increased because it failed.",
+        "E": "Reliability makes the device unavailable."
+      }
+    },
+    {
+      "id": "q-11",
+      "number": 11,
+      "type": "paragraph_completion",
+      "prompt": "The club records local bird calls each spring. ----. This allows later teams to compare changes over time.",
+      "contentBlockIds": [],
+      "choices": {
+        "A": "It stores the recordings with dates and locations.",
+        "B": "No member owns a calendar.",
+        "C": "The building closes before winter.",
+        "D": "Most tables are made of stone.",
+        "E": "A train passes the coast at night."
+      }
+    },
+    {
+      "id": "q-12",
+      "number": 12,
+      "type": "irrelevant_sentence",
+      "prompt": "Which sentence is irrelevant? (I) Ada designed a fictional rain gauge. (II) She placed it in an open field. (III) She recorded the water level daily. (IV) Her cousin prefers historical novels. (V) The measurements formed a weekly chart.",
+      "contentBlockIds": [],
+      "choices": {
+        "A": "I",
+        "B": "II",
+        "C": "III",
+        "D": "IV",
+        "E": "V"
+      }
+    }
+  ],
+  "answerKey": {
+    "revision": "sample-v1",
+    "status": "verified",
+    "verifiedAt": "2026-09-26T00:00:00Z",
+    "answers": {
+      "q-01": "A",
+      "q-02": "B",
+      "q-03": "C",
+      "q-04": "D",
+      "q-05": "B",
+      "q-06": "B",
+      "q-07": "A",
+      "q-08": "C",
+      "q-09": "A",
+      "q-10": "A",
+      "q-11": "A",
+      "q-12": "D"
+    }
+  }
+}

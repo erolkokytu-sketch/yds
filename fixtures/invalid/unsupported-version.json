@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 2,
+  "id": "invalid-unsupported-version",
+  "title": "Invalid fixture: unsupported version",
+  "year": 2026,
+  "term": "Test",
+  "language": "English",
+  "durationMinutes": 10,
+  "kind": "practice",
+  "source": {
+    "completeness": "sample",
+    "verification": "verified"
+  },
+  "scoring": {
+    "type": "correct-count",
+    "wrongAnswerPenalty": 0,
+    "maximumScore": 1,
+    "status": "verified"
+  },
+  "contentBlocks": [],
+  "questionGroups": [],
+  "questionCount": 1,
+  "questions": [
+    {
+      "id": "q-01",
+      "number": 1,
+      "type": "other",
+      "prompt": "Deliberately invalid test question.",
+      "contentBlockIds": [],
+      "choices": {
+        "A": "one",
+        "B": "two",
+        "C": "three",
+        "D": "four",
+        "E": "five"
+      }
+    }
+  ],
+  "answerKey": {
+    "revision": "invalid-v1",
+    "status": "unverified",
+    "answers": {
+      "q-01": "A"
+    }
+  }
+}

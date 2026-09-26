@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.yds-player.invalid/schemas/exam-session.v1.json",
+  "title": "YDS Player Exam Session v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "examId",
+    "examPackSchemaVersion",
+    "state",
+    "currentQuestionNumber",
+    "answers",
+    "flaggedQuestionIds",
+    "startedAt",
+    "completedAt",
+    "expiredAt",
+    "timer",
+    "result"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "minLength": 1 },
+    "examId": { "type": "string", "minLength": 1 },
+    "examPackSchemaVersion": { "const": 1 },
+    "state": { "enum": ["NOT_STARTED", "RUNNING", "PAUSED", "COMPLETED", "EXPIRED"] },
+    "currentQuestionNumber": { "type": "integer", "minimum": 1 },
+    "answers": {
+      "type": "object",
+      "additionalProperties": { "enum": ["A", "B", "C", "D", "E"] }
+    },
+    "flaggedQuestionIds": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "startedAt": { "type": ["string", "null"], "format": "date-time" },
+    "completedAt": { "type": ["string", "null"], "format": "date-time" },
+    "expiredAt": { "type": ["string", "null"], "format": "date-time" },
+    "timer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["durationSeconds", "accumulatedElapsedSeconds", "runStartedAt", "pausedAt"],
+      "properties": {
+        "durationSeconds": { "type": "integer", "minimum": 1 },
+        "accumulatedElapsedSeconds": { "type": "integer", "minimum": 0 },
+        "runStartedAt": { "type": ["string", "null"], "format": "date-time" },
+        "pausedAt": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "result": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["correct", "wrong", "blank", "score"],
+          "properties": {
+            "correct": { "type": "integer", "minimum": 0 },
+            "wrong": { "type": "integer", "minimum": 0 },
+            "blank": { "type": "integer", "minimum": 0 },
+            "score": { "type": ["number", "null"], "minimum": 0 }
+          }
+        }
+      ]
+    }
+  }
+}
