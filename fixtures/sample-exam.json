@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
   "id": "sample-yds-style-en-2026",
-  "title": "YDS-Style Practice Test — Sample",
+  "title": "Sample YDS Exam",
   "year": 2026,
   "term": "Sample",
   "language": "English",
-  "durationMinutes": 30,
+  "durationMinutes": 180,
   "kind": "practice",
   "source": {
     "retrievedAt": "2026-09-26T00:00:00Z",
