@@ -120,7 +120,7 @@ test("expected-end timer session is schema-valid and JSON-serializable", () => {
     examId: sample.id,
     examPackSchemaVersion: 1,
     state: "RUNNING",
-    currentQuestionIndex: 0,
+    currentQuestionId: "q-01",
     answers: {},
     flaggedQuestionIds: [],
     startedAt: 1_000,

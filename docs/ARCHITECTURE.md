@@ -1,6 +1,6 @@
 # YDS Player architecture
 
-Status: `PHASE_2_BASELINE`
+Status: `PHASE_5_PERSISTENCE_BASELINE`
 
 ## Constraints and boundaries
 
@@ -63,22 +63,29 @@ It must never fill missing official questions or answers, promote a 10% release 
 
 ## IndexedDB persistence
 
-One database uses explicit schema upgrades and these logical stores:
+The implemented database is `yds-study`, version 1. It currently creates only the
+`examSessions` store; pack, settings, backup, and cache stores are deferred. The store uses
+session `id` as its key and has `by-exam-id` and `by-updated-at` indexes. Session IDs are
+independent from exam IDs, so multiple exams and attempts do not share a primary key.
 
-| Store | Key | Content |
-|---|---|---|
-| `examPacks` | `[id, schemaVersion]` | Immutable validated packs |
-| `examSessions` | `id` | Mutable session snapshots |
-| `settings` | `key` | Local preferences |
-| `metadata` | `key` | DB version and migration markers |
+`SessionRepository` is the only IndexedDB boundary. Writes are queued in invocation order;
+rapid answer, navigation, flag, pause, resume, and expiration transitions therefore cannot
+overwrite a newer snapshot with an older one. Each record adds `storageVersion: 1` and
+`updatedAt` to the JSON-serializable session. Unsupported versions and schema-invalid records
+are logged and ignored without blocking the app.
 
-Pack installation and session updates use transactions. A pack cannot be overwritten under the same `[id, schemaVersion]`; a content correction receives a new pack ID or revision policy in a later schema. IndexedDB, not the service-worker cache, owns exam and session data.
+Startup has explicit loading, ready, and recoverable error states. Before rendering an exam,
+the app loads the latest session for that exam and validates `currentQuestionId` against the
+current pack. A running session derives remaining time from its persisted `expectedEndAt`; if
+it expired while the app was closed, startup transitions it to `EXPIRED` and writes that state
+back. A paused session restores `remainingMsWhenPaused` unchanged. Home shows the active
+session state and question with a `Devam Et` action.
 
 ## Exam Session model
 
 [`exam-session.schema.json`](../schemas/exam-session.schema.json) is separate from Exam Pack. A session references `examId` and `examPackSchemaVersion` and owns:
 
-- current question number;
+- current question ID (resolved against the pack at render time);
 - selected answers and flagged question IDs;
 - lifecycle state and timestamps;
 - timer state;

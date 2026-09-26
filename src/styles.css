@@ -134,6 +134,27 @@ button:focus-visible {
   line-height: 1.45;
 }
 
+.storage-warning {
+  padding: 12px 14px;
+  border: 1px solid #c88045;
+  border-radius: 14px;
+  color: var(--text);
+  background: var(--warm-soft);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.global-storage-warning {
+  position: fixed;
+  z-index: 30;
+  top: 10px;
+  left: 50%;
+  width: min(calc(100% - 24px), 560px);
+  margin: 0;
+  transform: translateX(-50%);
+  box-shadow: var(--shadow);
+}
+
 .exam-card,
 .question-card {
   border: 1px solid var(--line);
@@ -189,6 +210,19 @@ button:focus-visible {
 .exam-meta dd {
   margin: 0;
   font-weight: 700;
+}
+
+.active-session-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: -4px 0 18px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  font-size: 0.86rem;
 }
 
 .primary-button {
@@ -591,6 +625,21 @@ button:focus-visible {
 
 .expired-screen .notice {
   width: 100%;
+}
+
+.loading-screen {
+  display: grid;
+  min-height: 100vh;
+  place-content: center;
+  padding: 24px;
+  text-align: center;
+}
+
+.loading-screen h1 {
+  margin: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(1.65rem, 8vw, 2.6rem);
+  font-weight: 600;
 }
 
 @media (min-width: 680px) {

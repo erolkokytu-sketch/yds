@@ -26,6 +26,7 @@
     "state": { "enum": ["NOT_STARTED", "RUNNING", "PAUSED", "COMPLETED", "EXPIRED"] },
     "currentQuestionNumber": { "type": "integer", "minimum": 1 },
     "currentQuestionIndex": { "type": "integer", "minimum": 0 },
+    "currentQuestionId": { "type": "string", "minLength": 1 },
     "answers": {
       "type": "object",
       "additionalProperties": { "enum": ["A", "B", "C", "D", "E"] }
@@ -69,6 +70,10 @@
     {
       "required": ["currentQuestionIndex"],
       "properties": { "currentQuestionIndex": { "type": "integer", "minimum": 0 } }
+    },
+    {
+      "required": ["currentQuestionId"],
+      "properties": { "currentQuestionId": { "type": "string", "minLength": 1 } }
     }
   ],
   "$defs": {

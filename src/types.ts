@@ -53,7 +53,7 @@ export interface ExamSession {
   id: string;
   examId: string;
   examPackSchemaVersion: 1;
-  currentQuestionIndex: number;
+  currentQuestionId: string;
   answers: Record<string, ChoiceKey>;
   flaggedQuestionIds: string[];
   state: ExamStatus;
@@ -62,4 +62,9 @@ export interface ExamSession {
   expiredAt: number | null;
   timer: ExamTimerState;
   result: null;
+}
+
+export interface StoredExamSession extends ExamSession {
+  storageVersion: 1;
+  updatedAt: number;
 }

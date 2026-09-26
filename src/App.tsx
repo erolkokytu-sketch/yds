@@ -2,6 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AUTO_ADVANCE_AFTER_ANSWER, AUTO_ADVANCE_DELAY_MS } from "./config";
 import { sampleExam } from "./exam";
 import {
+  defaultSessionRepository,
+  type SessionRepositoryContract,
+} from "./session-repository";
+import {
   formatDuration,
   getRemainingMs,
   pauseTimer,
@@ -15,16 +19,25 @@ import type { ChoiceKey, Clock, ExamPack, ExamSession } from "./types";
 
 const CHOICE_KEYS: ChoiceKey[] = ["A", "B", "C", "D", "E"];
 
+function currentQuestionIndex(exam: ExamPack, session: ExamSession) {
+  const index = exam.questions.findIndex((question) => question.id === session.currentQuestionId);
+  return index >= 0 ? index : 0;
+}
+
 function routeTo(path: string) {
   window.history.pushState({}, "", path);
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
-function HomeScreen({ exam, onStart, interrupted }: {
+function HomeScreen({ exam, session, onStart, interrupted, storageError }: {
   exam: ExamPack;
+  session: ExamSession | null;
   onStart: () => void;
   interrupted: boolean;
+  storageError: string | null;
 }) {
+  const resumable = session && ["RUNNING", "PAUSED"].includes(session.state);
+  const questionIndex = session ? currentQuestionIndex(exam, session) : 0;
   return (
     <main className="home" aria-labelledby="exam-list-title">
       <section className="hero">
@@ -40,9 +53,10 @@ function HomeScreen({ exam, onStart, interrupted }: {
         </div>
         {interrupted && (
           <p className="notice" role="status">
-            Bu oturum yalnızca bellekte tutulur. Sınavı yeniden başlatabilirsiniz.
+            Bu sınav için devam edilecek aktif oturum bulunamadı. Yeni bir oturum başlatabilirsiniz.
           </p>
         )}
+        {storageError && <p className="storage-warning" role="alert">{storageError}</p>}
         <article className="exam-card">
           <div className="exam-card-topline">
             <span className="practice-badge">AI Deneme</span>
@@ -59,8 +73,14 @@ function HomeScreen({ exam, onStart, interrupted }: {
               <dd>{exam.durationMinutes} dakika</dd>
             </div>
           </dl>
+          {resumable && (
+            <div className="active-session-summary" aria-label="Aktif sınav oturumu">
+              <strong>{session.state === "PAUSED" ? "Duraklatıldı" : "Sınav devam ediyor"}</strong>
+              <span>Soru {questionIndex + 1} / {exam.questionCount}</span>
+            </div>
+          )}
           <button className="primary-button" type="button" onClick={onStart}>
-            Sınava Başla
+            {resumable ? "Devam Et" : session?.state === "EXPIRED" ? "Süreyi Gör" : "Sınava Başla"}
           </button>
         </article>
       </section>
@@ -80,6 +100,7 @@ function QuestionNavigator({
   onSelect: (index: number) => void;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
+  const activeQuestionIndex = currentQuestionIndex(exam, session);
 
   useEffect(() => {
     const previousFocus = document.activeElement as HTMLElement | null;
@@ -140,7 +161,7 @@ function QuestionNavigator({
 
         <div className="question-grid">
           {exam.questions.map((question, index) => {
-            const isCurrent = index === session.currentQuestionIndex;
+            const isCurrent = index === activeQuestionIndex;
             const isAnswered = Boolean(session.answers[question.id]);
             const isFlagged = session.flaggedQuestionIds.includes(question.id);
             const labels = [
@@ -191,13 +212,14 @@ function ExamPlayer({
   onPause: () => void;
 }) {
   const [navigatorOpen, setNavigatorOpen] = useState(false);
-  const question = exam.questions[session.currentQuestionIndex];
+  const activeQuestionIndex = currentQuestionIndex(exam, session);
+  const question = exam.questions[activeQuestionIndex];
   const selectedAnswer = session.answers[question.id];
   const flagged = session.flaggedQuestionIds.includes(question.id);
   const contentBlocks = question.contentBlockIds.map((id) =>
     exam.contentBlocks.find((block) => block.id === id),
   ).filter((block) => block !== undefined);
-  const progress = ((session.currentQuestionIndex + 1) / exam.questionCount) * 100;
+  const progress = ((activeQuestionIndex + 1) / exam.questionCount) * 100;
 
   const selectFromNavigator = (index: number) => {
     onNavigate(index);
@@ -219,7 +241,7 @@ function ExamPlayer({
       <section className="player-summary" aria-label="Sınav ilerlemesi">
         <p className="exam-title">{exam.title}</p>
         <div className="progress-row">
-          <strong>Soru {session.currentQuestionIndex + 1} / {exam.questionCount}</strong>
+          <strong>Soru {activeQuestionIndex + 1} / {exam.questionCount}</strong>
           <button className="text-button" type="button" onClick={() => setNavigatorOpen(true)}>
             Sorular
           </button>
@@ -277,16 +299,16 @@ function ExamPlayer({
         <button
           className="secondary-button"
           type="button"
-          disabled={session.currentQuestionIndex === 0}
-          onClick={() => onNavigate(session.currentQuestionIndex - 1)}
+          disabled={activeQuestionIndex === 0}
+          onClick={() => onNavigate(activeQuestionIndex - 1)}
         >
           ← Önceki
         </button>
         <button
           className="secondary-button"
           type="button"
-          disabled={session.currentQuestionIndex === exam.questions.length - 1}
-          onClick={() => onNavigate(session.currentQuestionIndex + 1)}
+          disabled={activeQuestionIndex === exam.questions.length - 1}
+          onClick={() => onNavigate(activeQuestionIndex + 1)}
         >
           Sonraki →
         </button>
@@ -319,7 +341,7 @@ function PauseScreen({
     <main className="status-screen pause-screen" aria-labelledby="pause-title">
       <p className="eyebrow">{exam.title}</p>
       <h1 id="pause-title">Sınav Duraklatıldı</h1>
-      <p className="status-question">Soru {session.currentQuestionIndex + 1} / {exam.questionCount}</p>
+      <p className="status-question">Soru {currentQuestionIndex(exam, session) + 1} / {exam.questionCount}</p>
       <div className="status-timer" aria-label="Duraklatılmış kalan süre">
         <span>Kalan süre</span>
         <strong>{formatDuration(remainingMs)}</strong>
@@ -360,18 +382,55 @@ function withTimerSnapshot(
   };
 }
 
-export function App({ clock = systemClock }: { clock?: Clock }) {
+type HydrationState = "loading" | "ready" | "error";
+
+function LoadingScreen() {
+  return (
+    <main className="loading-screen" aria-live="polite">
+      <p className="eyebrow">YDS Çalışma</p>
+      <h1>YDS Çalışma yükleniyor…</h1>
+    </main>
+  );
+}
+
+export function App({
+  clock = systemClock,
+  repository = defaultSessionRepository,
+}: {
+  clock?: Clock;
+  repository?: SessionRepositoryContract;
+}) {
   const [path, setPath] = useState(window.location.pathname);
   const [session, setSession] = useState<ExamSession | null>(null);
   const [nowMs, setNowMs] = useState(() => clock.now());
+  const [hydrationState, setHydrationState] = useState<HydrationState>("loading");
+  const [storageError, setStorageError] = useState<string | null>(null);
+  const sessionRef = useRef<ExamSession | null>(null);
   const autoAdvanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoAdvanceToken = useRef(0);
 
   const clearAutoAdvance = useCallback(() => {
+    autoAdvanceToken.current += 1;
     if (autoAdvanceTimer.current !== null) {
       clearTimeout(autoAdvanceTimer.current);
       autoAdvanceTimer.current = null;
     }
   }, []);
+
+  const persistSession = useCallback(async (nextSession: ExamSession, updatedAt: number) => {
+    try {
+      await repository.saveSession(nextSession, updatedAt);
+    } catch (error) {
+      console.error("[session-storage] save failed", error);
+      setStorageError("İlerlemen kaydedilemedi. Lütfen uygulamayı kapatmadan önce tekrar dene.");
+    }
+  }, [repository]);
+
+  const commitSession = useCallback((nextSession: ExamSession, updatedAt = clock.now()) => {
+    sessionRef.current = nextSession;
+    setSession(nextSession);
+    return persistSession(nextSession, updatedAt);
+  }, [clock, persistSession]);
 
   useEffect(() => {
     const handleRouteChange = () => setPath(window.location.pathname);
@@ -382,17 +441,56 @@ export function App({ clock = systemClock }: { clock?: Clock }) {
   useEffect(() => clearAutoAdvance, [clearAutoAdvance]);
 
   useEffect(() => {
+    let cancelled = false;
+    const hydrate = async () => {
+      try {
+        const restored = await repository.findLatestSessionForExam(sampleExam.id);
+        if (cancelled) return;
+        if (restored && !sampleExam.questions.some(({ id }) => id === restored.currentQuestionId)) {
+          console.error(`[session-storage] ignored session ${restored.id} with unknown currentQuestionId`);
+          setHydrationState("ready");
+          return;
+        }
+
+        if (restored) {
+          const currentNow = clock.now();
+          const snapshot = synchronizeTimer(restored.timer, restored.state, currentNow);
+          const reconciled = withTimerSnapshot(restored, snapshot, currentNow);
+          sessionRef.current = reconciled;
+          setSession(reconciled);
+          setNowMs(currentNow);
+          if (reconciled.state !== restored.state) {
+            await persistSession(reconciled, currentNow);
+          }
+        }
+        if (!cancelled) setHydrationState("ready");
+      } catch (error) {
+        console.error("[session-storage] hydration failed", error);
+        if (!cancelled) {
+          setStorageError("Kayıtlı ilerleme okunamadı. Yeni oturum bellekte kullanılabilir.");
+          setHydrationState("error");
+        }
+      }
+    };
+    void hydrate();
+    return () => {
+      cancelled = true;
+    };
+  }, [clock, persistSession, repository]);
+
+  useEffect(() => {
     if (session?.state !== "RUNNING") return;
 
     const refresh = () => {
       const currentNow = clock.now();
       setNowMs(currentNow);
-      setSession((current) => {
-        if (!current || current.state !== "RUNNING") return current;
-        const snapshot = synchronizeTimer(current.timer, current.state, currentNow);
-        if (snapshot.status === "EXPIRED") clearAutoAdvance();
-        return withTimerSnapshot(current, snapshot, currentNow);
-      });
+      const current = sessionRef.current;
+      if (!current || current.state !== "RUNNING") return;
+      const snapshot = synchronizeTimer(current.timer, current.state, currentNow);
+      if (snapshot.status === "EXPIRED") {
+        clearAutoAdvance();
+        void commitSession(withTimerSnapshot(current, snapshot, currentNow), currentNow);
+      }
     };
     const handleVisibility = () => {
       if (document.visibilityState === "visible") refresh();
@@ -405,30 +503,38 @@ export function App({ clock = systemClock }: { clock?: Clock }) {
       document.removeEventListener("visibilitychange", handleVisibility);
       window.removeEventListener("focus", refresh);
     };
-  }, [clearAutoAdvance, clock, session?.state]);
+  }, [clearAutoAdvance, clock, commitSession, session?.state]);
 
   const expireIfNeeded = () => {
-    if (!session || session.state !== "RUNNING") return false;
+    const current = sessionRef.current;
+    if (!current || current.state !== "RUNNING") return false;
     const currentNow = clock.now();
-    const snapshot = synchronizeTimer(session.timer, session.state, currentNow);
+    const snapshot = synchronizeTimer(current.timer, current.state, currentNow);
     if (snapshot.status !== "EXPIRED") return false;
     clearAutoAdvance();
     setNowMs(currentNow);
-    setSession(withTimerSnapshot(session, snapshot, currentNow));
+    void commitSession(withTimerSnapshot(current, snapshot, currentNow), currentNow);
     return true;
   };
 
-  const startExam = () => {
+  const startOrContinueExam = () => {
     clearAutoAdvance();
+    const existing = sessionRef.current;
+    if (existing && ["RUNNING", "PAUSED", "EXPIRED"].includes(existing.state)) {
+      routeTo(`/exam/${sampleExam.id}`);
+      return;
+    }
+
     const currentNow = clock.now();
     const timerSnapshot = startTimer(sampleExam.durationMinutes * 60_000, currentNow);
-    setNowMs(currentNow);
-    setSession({
+    const nextSession: ExamSession = {
       schemaVersion: 1,
-      id: `session-${currentNow}`,
+      id: typeof crypto.randomUUID === "function"
+        ? `session-${crypto.randomUUID()}`
+        : `session-${currentNow}-${Math.random().toString(36).slice(2)}`,
       examId: sampleExam.id,
       examPackSchemaVersion: 1,
-      currentQuestionIndex: 0,
+      currentQuestionId: sampleExam.questions[0].id,
       answers: {},
       flaggedQuestionIds: [],
       state: timerSnapshot.status,
@@ -437,107 +543,133 @@ export function App({ clock = systemClock }: { clock?: Clock }) {
       expiredAt: null,
       timer: timerSnapshot.timer,
       result: null,
-    });
+    };
+    setNowMs(currentNow);
+    void commitSession(nextSession, currentNow);
     routeTo(`/exam/${sampleExam.id}`);
   };
 
   const navigateToQuestion = (index: number) => {
     clearAutoAdvance();
-    if (!session || session.state !== "RUNNING" || expireIfNeeded()) return;
-    if (index < 0 || index >= sampleExam.questions.length) return;
-    setSession((current) => current?.state === "RUNNING"
-      ? { ...current, currentQuestionIndex: index }
-      : current);
+    const current = sessionRef.current;
+    if (!current || current.state !== "RUNNING" || expireIfNeeded()) return;
+    const question = sampleExam.questions[index];
+    if (!question) return;
+    void commitSession({ ...current, currentQuestionId: question.id });
   };
 
   const answerCurrentQuestion = (answer: ChoiceKey) => {
-    if (!session || session.state !== "RUNNING" || expireIfNeeded()) return;
+    const current = sessionRef.current;
+    if (!current || current.state !== "RUNNING" || expireIfNeeded()) return;
     clearAutoAdvance();
-    const question = sampleExam.questions[session.currentQuestionIndex];
-    setSession((current) => current?.state === "RUNNING" ? {
+    const questionIndex = currentQuestionIndex(sampleExam, current);
+    const question = sampleExam.questions[questionIndex];
+    const answeredSession: ExamSession = {
       ...current,
       answers: { ...current.answers, [question.id]: answer },
-    } : current);
+    };
+    const saveAnswer = commitSession(answeredSession);
 
-    const hasNextQuestion = session.currentQuestionIndex < sampleExam.questions.length - 1;
-    if (AUTO_ADVANCE_AFTER_ANSWER && hasNextQuestion) {
-      const expectedIndex = session.currentQuestionIndex;
-      autoAdvanceTimer.current = setTimeout(() => {
-        const currentNow = clock.now();
-        setNowMs(currentNow);
-        setSession((current) => {
-          if (!current || current.state !== "RUNNING") return current;
-          const snapshot = synchronizeTimer(current.timer, current.state, currentNow);
-          if (snapshot.status === "EXPIRED") {
-            return withTimerSnapshot(current, snapshot, currentNow);
+    if (AUTO_ADVANCE_AFTER_ANSWER && questionIndex < sampleExam.questions.length - 1) {
+      const expectedQuestionId = question.id;
+      const token = autoAdvanceToken.current;
+      void saveAnswer.then(() => {
+        if (token !== autoAdvanceToken.current) return;
+        autoAdvanceTimer.current = setTimeout(() => {
+          const latest = sessionRef.current;
+          const currentNow = clock.now();
+          setNowMs(currentNow);
+          if (!latest || latest.state !== "RUNNING" || latest.currentQuestionId !== expectedQuestionId) {
+            return;
           }
-          if (current.currentQuestionIndex !== expectedIndex) return current;
-          return { ...current, currentQuestionIndex: expectedIndex + 1 };
-        });
-        autoAdvanceTimer.current = null;
-      }, AUTO_ADVANCE_DELAY_MS);
+          const snapshot = synchronizeTimer(latest.timer, latest.state, currentNow);
+          if (snapshot.status === "EXPIRED") {
+            void commitSession(withTimerSnapshot(latest, snapshot, currentNow), currentNow);
+            return;
+          }
+          const nextQuestion = sampleExam.questions[questionIndex + 1];
+          void commitSession({ ...latest, currentQuestionId: nextQuestion.id }, currentNow);
+          autoAdvanceTimer.current = null;
+        }, AUTO_ADVANCE_DELAY_MS);
+      });
     }
   };
 
   const toggleCurrentFlag = () => {
-    if (!session || session.state !== "RUNNING" || expireIfNeeded()) return;
-    const questionId = sampleExam.questions[session.currentQuestionIndex].id;
-    setSession((current) => {
-      if (!current || current.state !== "RUNNING") return current;
-      const isFlagged = current.flaggedQuestionIds.includes(questionId);
-      return {
-        ...current,
-        flaggedQuestionIds: isFlagged
-          ? current.flaggedQuestionIds.filter((id) => id !== questionId)
-          : [...current.flaggedQuestionIds, questionId],
-      };
+    const current = sessionRef.current;
+    if (!current || current.state !== "RUNNING" || expireIfNeeded()) return;
+    const questionId = current.currentQuestionId;
+    const isFlagged = current.flaggedQuestionIds.includes(questionId);
+    void commitSession({
+      ...current,
+      flaggedQuestionIds: isFlagged
+        ? current.flaggedQuestionIds.filter((id) => id !== questionId)
+        : [...current.flaggedQuestionIds, questionId],
     });
   };
 
   const pauseExam = () => {
-    if (!session || session.state !== "RUNNING") return;
+    const current = sessionRef.current;
+    if (!current || current.state !== "RUNNING") return;
     clearAutoAdvance();
     const currentNow = clock.now();
-    const snapshot = pauseTimer(session.timer, session.state, currentNow);
+    const snapshot = pauseTimer(current.timer, current.state, currentNow);
     setNowMs(currentNow);
-    setSession(withTimerSnapshot(session, snapshot, currentNow));
+    void commitSession(withTimerSnapshot(current, snapshot, currentNow), currentNow);
   };
 
   const resumeExam = () => {
-    if (!session || session.state !== "PAUSED") return;
+    const current = sessionRef.current;
+    if (!current || current.state !== "PAUSED") return;
     const currentNow = clock.now();
-    const snapshot = resumeTimer(session.timer, session.state, currentNow);
+    const snapshot = resumeTimer(current.timer, current.state, currentNow);
     setNowMs(currentNow);
-    setSession(withTimerSnapshot(session, snapshot, currentNow));
+    void commitSession(withTimerSnapshot(current, snapshot, currentNow), currentNow);
   };
+
+  if (hydrationState === "loading") return <LoadingScreen />;
 
   const examRoute = path === `/exam/${sampleExam.id}`;
   if (!examRoute || !session) {
-    return <HomeScreen exam={sampleExam} onStart={startExam} interrupted={examRoute && !session} />;
-  }
-
-  const remainingMs = getRemainingMs(session.timer, session.state, nowMs);
-  if (session.state === "PAUSED") {
     return (
-      <PauseScreen
+      <HomeScreen
         exam={sampleExam}
         session={session}
-        remainingMs={remainingMs}
-        onResume={resumeExam}
+        onStart={startOrContinueExam}
+        interrupted={examRoute && !session}
+        storageError={storageError}
       />
     );
   }
-  if (session.state === "EXPIRED") return <ExpiredScreen exam={sampleExam} />;
+
+  const remainingMs = getRemainingMs(session.timer, session.state, nowMs);
+  const storageWarning = storageError
+    ? <p className="storage-warning global-storage-warning" role="alert">{storageError}</p>
+    : null;
+  if (session.state === "PAUSED") {
+    return (
+      <>
+        {storageWarning}
+        <PauseScreen exam={sampleExam} session={session} remainingMs={remainingMs} onResume={resumeExam} />
+      </>
+    );
+  }
+  if (session.state === "EXPIRED") {
+    return <>{storageWarning}<ExpiredScreen exam={sampleExam} /></>;
+  }
 
   return (
-    <ExamPlayer
-      exam={sampleExam}
-      session={session}
-      remainingMs={remainingMs}
-      onAnswer={answerCurrentQuestion}
-      onNavigate={navigateToQuestion}
-      onToggleFlag={toggleCurrentFlag}
-      onPause={pauseExam}
-    />
+    <>
+      {storageWarning}
+      <ExamPlayer
+        exam={sampleExam}
+        session={session}
+        remainingMs={remainingMs}
+        onAnswer={answerCurrentQuestion}
+        onNavigate={navigateToQuestion}
+        onToggleFlag={toggleCurrentFlag}
+        onPause={pauseExam}
+      />
+    </>
   );
 }
