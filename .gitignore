@@ -1,0 +1,13 @@
+# Local/private source material must never be committed.
+imports/*
+!imports/.gitkeep
+exam-packs/*
+!exam-packs/.gitkeep
+
+.env
+.env.local
+.DS_Store
+node_modules/
+dist/
+coverage/
+playwright-report/
