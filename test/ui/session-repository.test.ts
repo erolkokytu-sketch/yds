@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { SessionRepository } from "../../src/session-repository";
+import { sampleExam } from "../../src/exam";
+import { finalizeExamSession } from "../../src/result";
 import { getRemainingMs, pauseTimer, resumeTimer, startTimer, synchronizeTimer } from "../../src/timer";
 import type { ExamSession, StoredExamSession } from "../../src/types";
 
@@ -179,5 +181,51 @@ describe("IndexedDB session repository", () => {
     void repo.saveSession(flagged, START + 3);
     void repo.saveSession(paused, START + 4);
     expect(await repo.loadSession(initial.id)).toEqual(paused);
+  });
+
+  test("Storage 1 — completed attempt survives reload", async () => {
+    const repo = repository();
+    const completed = finalizeExamSession(sampleExam, runningSession({ examId: sampleExam.id }), "manual", START + 10);
+    await repo.saveSession(completed, START + 10);
+    expect(await repo.loadSession(completed.id)).toEqual(completed);
+  });
+
+  test("Storage 2 — completed attempt is not an active session", async () => {
+    const repo = repository();
+    const completed = finalizeExamSession(sampleExam, runningSession({ examId: sampleExam.id }), "manual", START + 10);
+    await repo.saveSession(completed, START + 10);
+    expect(await repo.findActiveSessionForExam(sampleExam.id)).toBeNull();
+    expect((await repo.findLatestCompletedAttemptForExam(sampleExam.id))?.id).toBe(completed.id);
+  });
+
+  test("Storage 3 — a new attempt does not delete the old result", async () => {
+    const repo = repository();
+    const completed = finalizeExamSession(sampleExam, runningSession({ examId: sampleExam.id }), "manual", START + 10);
+    const retake = runningSession({ id: "session-retake", examId: sampleExam.id });
+    await repo.saveSession(completed, START + 10);
+    await repo.saveSession(retake, START + 20);
+    expect((await repo.findActiveSessionForExam(sampleExam.id))?.id).toBe(retake.id);
+    expect((await repo.findLatestCompletedAttemptForExam(sampleExam.id))?.id).toBe(completed.id);
+  });
+
+  test("Storage 4 — two attempts for one exam remain distinguishable", async () => {
+    const repo = repository();
+    const first = finalizeExamSession(
+      sampleExam,
+      runningSession({ id: "attempt-1", examId: sampleExam.id, answers: { "q-01": "A" } }),
+      "manual",
+      START + 10,
+    );
+    const second = finalizeExamSession(
+      sampleExam,
+      runningSession({ id: "attempt-2", examId: sampleExam.id, answers: { "q-01": "B" } }),
+      "manual",
+      START + 20,
+    );
+    await repo.saveSession(first, START + 10);
+    await repo.saveSession(second, START + 20);
+    const attempts = await repo.listSessionsForExam(sampleExam.id);
+    expect(attempts.map(({ id }) => id)).toEqual(["attempt-2", "attempt-1"]);
+    expect(attempts[0].result?.correct).not.toBe(attempts[1].result?.correct);
   });
 });

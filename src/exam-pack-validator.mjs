@@ -161,6 +161,42 @@ export function validateExamSession(session) {
 
   const errors = [];
   const { state, startedAt, completedAt, expiredAt, timer } = session;
+  if (session.result) {
+    const result = session.result;
+    if (
+      result.correct + result.incorrect + result.blank !== result.totalQuestions
+      || result.answered !== result.correct + result.incorrect
+      || result.completedAt !== completedAt
+      || result.completionReason !== session.completionReason
+    ) {
+      errors.push({
+        code: "invalid_result_invariant",
+        path: "/result",
+        message: "result counts or completion metadata are inconsistent",
+      });
+    }
+  }
+  if (state === "COMPLETED" && (!session.result || session.completionReason !== "manual")) {
+    errors.push({
+      code: "completed_result_missing",
+      path: "/result",
+      message: "completed session requires a manual result",
+    });
+  }
+  if (state === "EXPIRED" && session.result && session.completionReason !== "expired") {
+    errors.push({
+      code: "expired_result_mismatch",
+      path: "/result",
+      message: "expired result requires expired completion metadata",
+    });
+  }
+  if (!["COMPLETED", "EXPIRED"].includes(state) && session.result) {
+    errors.push({
+      code: "non_terminal_result",
+      path: "/result",
+      message: "non-terminal session cannot contain a result",
+    });
+  }
   const expectedEndModel = timer.model === "expected-end-v1";
   const stateRules = expectedEndModel
     ? {

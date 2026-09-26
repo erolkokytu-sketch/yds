@@ -1,6 +1,6 @@
 # YDS Player architecture
 
-Status: `PHASE_5_PERSISTENCE_BASELINE`
+Status: `PHASE_6_RESULTS_BASELINE`
 
 ## Constraints and boundaries
 
@@ -81,6 +81,12 @@ it expired while the app was closed, startup transitions it to `EXPIRED` and wri
 back. A paused session restores `remainingMsWhenPaused` unchanged. Home shows the active
 session state and question with a `Devam Et` action.
 
+Completed attempts remain in the same `examSessions` store under their unique session IDs.
+This keeps database version 1 and avoids a destructive migration: active lookup accepts only
+`RUNNING`/`PAUSED`, while completed-attempt lookup accepts only `COMPLETED`/`EXPIRED`.
+Starting a retake inserts a new session and never overwrites the terminal attempt. Active
+sessions take precedence over the latest completed result during hydration.
+
 ## Exam Session model
 
 [`exam-session.schema.json`](../schemas/exam-session.schema.json) is separate from Exam Pack. A session references `examId` and `examPackSchemaVersion` and owns:
@@ -92,6 +98,34 @@ session state and question with a `Devam Et` action.
 - completion result.
 
 The pack forbids session fields through `additionalProperties: false`; the session likewise cannot contain questions or an answer key. Completed results are snapshots so later UI reads do not silently recalculate historical results against a different pack.
+
+## Completion and results
+
+Manual completion cancels pending auto-advance, freezes the timer, calculates a result, sets
+`COMPLETED`, records `completedAt` and `completionReason: manual`, and persists the terminal
+snapshot before showing results. Expiration follows the same path with `EXPIRED` and
+`completionReason: expired`. Startup also finalizes a legacy Phase 5 session that expired while
+closed; finalization is idempotent, so it cannot create duplicate attempts or results.
+
+`calculateExamResult(exam, session)` is pure and reads correct choices only from the Exam
+Pack's canonical answer key. A missing user answer is blank, and flags never affect scoring.
+Every result enforces:
+
+```text
+correct + incorrect + blank = totalQuestions
+answered = correct + incorrect
+```
+
+A numeric score is included only when both scoring metadata and the final answer key are
+verified. `scaled-correct-count` uses the pack's declared maximum score; otherwise score is
+`null` and the UI omits it. The sample practice fixture has explicitly verified test scoring.
+
+## Review mode
+
+Review is a separate read-only route. It has no timer, answer, flag, pause, resume, or
+auto-advance actions. Each question renders the user's answer and canonical correct answer with
+text labels in addition to visual states. Filters for all, incorrect, blank, correct, and flagged
+questions change only local UI state; Previous/Next moves only within the filtered set.
 
 ## Timer state model
 
@@ -137,8 +171,8 @@ remaining <= 0 → EXPIRED, displayed as 00:00:00
 | `NOT_STARTED` | start | `RUNNING` | set session `startedAt`; set `expectedEndAt = now + durationMs` |
 | `RUNNING` | pause | `PAUSED` | calculate actual remaining; clear `expectedEndAt`; set `pausedAt` and frozen remaining |
 | `PAUSED` | resume | `RUNNING` | set a new `expectedEndAt`; clear paused fields |
-| `RUNNING`/`PAUSED` | submit | `COMPLETED` | reserved for the later completion flow |
-| `RUNNING` | derived remaining reaches zero | `EXPIRED` | clear end timestamp; freeze remaining at zero; set session `expiredAt` |
+| `RUNNING`/`PAUSED` | submit | `COMPLETED` | freeze timer; calculate and persist result; set manual completion metadata |
+| `RUNNING` | derived remaining reaches zero | `EXPIRED` | freeze at zero; calculate and persist result; set expired completion metadata |
 
 The 250 ms React interval only requests a UI refresh. It never decrements persisted state. `visibilitychange` and focus refresh immediately from the injected clock, so background interval throttling cannot create drift. Clock rollback is clamped and cannot grant more than the original duration. `COMPLETED` and `EXPIRED` are terminal; paused time never advances.
 

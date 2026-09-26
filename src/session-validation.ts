@@ -22,6 +22,27 @@ export function validateSessionForRestore(value: unknown): SessionValidationResu
   }
 
   const session = value as unknown as ExamSession;
+  if (session.result) {
+    const { result } = session;
+    const invariantValid = result.correct + result.incorrect + result.blank === result.totalQuestions
+      && result.answered === result.correct + result.incorrect
+      && result.completedAt === session.completedAt
+      && result.completionReason === session.completionReason;
+    if (!invariantValid) {
+      return { valid: false, errors: ["result fields violate completion invariants"] };
+    }
+  }
+  if (session.state === "COMPLETED"
+    && (!session.result || session.completionReason !== "manual")) {
+    return { valid: false, errors: ["completed session requires a manual result"] };
+  }
+  if (session.state === "EXPIRED" && session.result
+    && session.completionReason !== "expired") {
+    return { valid: false, errors: ["expired result requires expired completion metadata"] };
+  }
+  if (!["COMPLETED", "EXPIRED"].includes(session.state) && session.result) {
+    return { valid: false, errors: ["non-terminal session cannot contain a result"] };
+  }
   if (session.timer.model !== "expected-end-v1") {
     return { valid: true, errors: [] };
   }

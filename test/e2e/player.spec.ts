@@ -88,7 +88,47 @@ test("timestamp jump expires the exam without waiting three hours", async ({ pag
 
   await expect(page.getByRole("heading", { name: "Süre Doldu" })).toBeVisible();
   await expect(page.getByText("00:00:00")).toBeVisible();
+  await expect(page.locator(".result-grid div", { hasText: "Boş" })).toContainText("12");
+  await expect(page.getByText("Tamamlama:")).toContainText("Süre doldu");
   await expect(page.getByTestId("answer-choice")).toHaveCount(0);
+  expectNoBrowserErrors();
+});
+
+test("manual completion shows persisted results and read-only review filters", async ({ page }) => {
+  const expectNoBrowserErrors = monitorBrowserErrors(page);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Sınava Başla" }).click();
+  await page.getByTestId("answer-choice").first().click();
+  await expect(page.getByText("Soru 2 / 12")).toBeVisible();
+  await page.getByTestId("answer-choice").first().click();
+  await expect(page.getByText("Soru 3 / 12")).toBeVisible();
+  await page.getByRole("button", { name: "Sonra Bak" }).click();
+  await page.getByRole("button", { name: "Sınavı Bitir" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "Sınavı bitirmek istediğine emin misin?" });
+  await expect(dialog).toContainText("Cevaplanan2");
+  await expect(dialog).toContainText("Boş10");
+  await expect(dialog).toContainText("Sonra Bak1");
+  await dialog.getByRole("button", { name: "Sınavı Bitir" }).click();
+
+  await expect(page.getByRole("heading", { name: "Sınav Tamamlandı" })).toBeVisible();
+  await expect(page.locator(".result-grid div", { hasText: "Doğru" })).toContainText("1");
+  await expect(page.locator(".result-grid div", { hasText: "Yanlış" })).toContainText("1");
+  await expect(page.locator(".result-grid div", { hasText: "Boş" })).toContainText("10");
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Sınav Tamamlandı" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Soruları İncele" }).click();
+  await page.getByRole("button", { name: "Yanlışlar" }).click();
+  await expect(page.locator('[data-question-id="q-02"]')).toBeVisible();
+  await page.getByRole("button", { name: "Boşlar" }).click();
+  await expect(page.locator('[data-question-id="q-03"]')).toBeVisible();
+  await page.getByRole("button", { name: "Doğrular" }).click();
+  await expect(page.locator('[data-question-id="q-01"]')).toBeVisible();
+  await expect(page.getByTestId("answer-choice")).toHaveCount(0);
+  await page.getByRole("button", { name: "Sonuçlara Dön" }).click();
+  await page.getByRole("button", { name: "Ana Sayfaya Dön" }).click();
+  await expect(page.getByText("Son sonuç")).toBeVisible();
   expectNoBrowserErrors();
 });
 

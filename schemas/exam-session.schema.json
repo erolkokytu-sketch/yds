@@ -38,6 +38,10 @@
     },
     "startedAt": { "$ref": "#/$defs/timestamp" },
     "completedAt": { "$ref": "#/$defs/timestamp" },
+    "completionReason": {
+      "type": ["string", "null"],
+      "enum": ["manual", "expired", null]
+    },
     "expiredAt": { "$ref": "#/$defs/timestamp" },
     "timer": {
       "oneOf": [
@@ -51,12 +55,25 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["correct", "wrong", "blank", "score"],
+          "required": [
+            "totalQuestions",
+            "answered",
+            "correct",
+            "incorrect",
+            "blank",
+            "score",
+            "completedAt",
+            "completionReason"
+          ],
           "properties": {
+            "totalQuestions": { "type": "integer", "minimum": 1 },
+            "answered": { "type": "integer", "minimum": 0 },
             "correct": { "type": "integer", "minimum": 0 },
-            "wrong": { "type": "integer", "minimum": 0 },
+            "incorrect": { "type": "integer", "minimum": 0 },
             "blank": { "type": "integer", "minimum": 0 },
-            "score": { "type": ["number", "null"], "minimum": 0 }
+            "score": { "type": ["number", "null"], "minimum": 0 },
+            "completedAt": { "type": "integer", "minimum": 0 },
+            "completionReason": { "enum": ["manual", "expired"] }
           }
         }
       ]

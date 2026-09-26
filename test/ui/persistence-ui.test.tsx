@@ -103,7 +103,11 @@ describe("session hydration", () => {
     render(<App repository={repository} clock={clock} />);
     expect(await screen.findByRole("heading", { name: "Süre Doldu" })).toBeInTheDocument();
     await act(async () => repository.flush());
-    expect((await repository.findLatestSessionForExam(sampleExam.id))?.state).toBe("EXPIRED");
+    const expired = await repository.findLatestSessionForExam(sampleExam.id);
+    expect(expired?.state).toBe("EXPIRED");
+    expect(expired?.result).not.toBeNull();
+    expect(expired?.completionReason).toBe("expired");
+    expect(await repository.listSessionsForExam(sampleExam.id)).toHaveLength(1);
   });
 
   test("corrupt stored session is ignored without crashing startup", async () => {

@@ -23,6 +23,8 @@ export interface SessionRepositoryContract {
   loadSession(sessionId: string): Promise<ExamSession | null>;
   findActiveSessionForExam(examId: string): Promise<ExamSession | null>;
   findLatestSessionForExam(examId: string): Promise<ExamSession | null>;
+  findLatestCompletedAttemptForExam(examId: string): Promise<ExamSession | null>;
+  listSessionsForExam(examId: string): Promise<ExamSession[]>;
   listActiveSessions(): Promise<ExamSession[]>;
   deleteSession(sessionId: string): Promise<void>;
   flush(): Promise<void>;
@@ -88,21 +90,32 @@ export class SessionRepository implements SessionRepositoryContract {
     return record ? validSessionFromRecord(record) : null;
   }
 
-  async findLatestSessionForExam(examId: string): Promise<ExamSession | null> {
+  private async validSessionsForExam(examId: string): Promise<ExamSession[]> {
     await this.flush();
     const database = await this.databasePromise;
     const records = await database.getAllFromIndex(SESSION_STORE, "by-exam-id", examId);
-    records.sort((left, right) => right.updatedAt - left.updatedAt);
-    for (const record of records) {
-      const session = validSessionFromRecord(record);
-      if (session && ["RUNNING", "PAUSED", "EXPIRED"].includes(session.state)) return session;
-    }
-    return null;
+    return records
+      .sort((left, right) => right.updatedAt - left.updatedAt)
+      .map(validSessionFromRecord)
+      .filter((session): session is ExamSession => session !== null);
+  }
+
+  async findLatestSessionForExam(examId: string): Promise<ExamSession | null> {
+    return (await this.validSessionsForExam(examId))[0] ?? null;
   }
 
   async findActiveSessionForExam(examId: string): Promise<ExamSession | null> {
-    const session = await this.findLatestSessionForExam(examId);
-    return session && ["RUNNING", "PAUSED"].includes(session.state) ? session : null;
+    return (await this.validSessionsForExam(examId))
+      .find((session) => ["RUNNING", "PAUSED"].includes(session.state)) ?? null;
+  }
+
+  async findLatestCompletedAttemptForExam(examId: string): Promise<ExamSession | null> {
+    return (await this.validSessionsForExam(examId))
+      .find((session) => ["COMPLETED", "EXPIRED"].includes(session.state)) ?? null;
+  }
+
+  async listSessionsForExam(examId: string): Promise<ExamSession[]> {
+    return this.validSessionsForExam(examId);
   }
 
   async listActiveSessions(): Promise<ExamSession[]> {

@@ -61,7 +61,7 @@ describe("timer UI", () => {
   test("UI 5 — expiration replaces player with terminal screen", async () => {
     await startExam();
     await jumpClockTo(BASE_TIME + EXAM_DURATION_MS);
-    expect(screen.getByRole("heading", { name: "Süre Doldu" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Süre Doldu" })).toBeInTheDocument();
     expect(screen.getByText("00:00:00")).toBeInTheDocument();
     expect(screen.queryByTestId("answer-choice")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Sorular" })).not.toBeInTheDocument();

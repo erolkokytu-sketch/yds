@@ -140,6 +140,43 @@ test("expected-end timer session is schema-valid and JSON-serializable", () => {
   assert.deepEqual(validateExamSession(roundTripped), { valid: true, errors: [] });
 });
 
+test("completed result satisfies terminal metadata and count invariants", () => {
+  const session = {
+    schemaVersion: 1,
+    id: "session-completed-01",
+    examId: sample.id,
+    examPackSchemaVersion: 1,
+    state: "COMPLETED",
+    currentQuestionId: "q-01",
+    answers: { "q-01": "A" },
+    flaggedQuestionIds: [],
+    startedAt: 1_000,
+    completedAt: 2_000,
+    completionReason: "manual",
+    expiredAt: null,
+    timer: {
+      model: "expected-end-v1",
+      durationMs: 10_800_000,
+      expectedEndAt: null,
+      pausedAt: null,
+      remainingMsWhenPaused: 10_799_000,
+    },
+    result: {
+      totalQuestions: 12,
+      answered: 1,
+      correct: 1,
+      incorrect: 0,
+      blank: 11,
+      score: 8.33,
+      completedAt: 2_000,
+      completionReason: "manual",
+    },
+  };
+  assert.deepEqual(validateExamSession(session), { valid: true, errors: [] });
+  session.result.blank = 10;
+  assert.equal(hasError(validateExamSession(session), "invalid_result_invariant"), true);
+});
+
 test("committed invalid fixture corpus fails validation", async () => {
   const fixtureUrls = [
     new URL("../fixtures/invalid/missing-option.json", import.meta.url),

@@ -1,5 +1,6 @@
 export type ChoiceKey = "A" | "B" | "C" | "D" | "E";
 export type ExamStatus = "NOT_STARTED" | "RUNNING" | "PAUSED" | "COMPLETED" | "EXPIRED";
+export type CompletionReason = "manual" | "expired";
 
 export interface ExamTimerState {
   model: "expected-end-v1";
@@ -43,9 +44,32 @@ export interface ExamPack {
   language: string;
   durationMinutes: number;
   kind: "official" | "practice";
+  scoring: {
+    type: "correct-count" | "scaled-correct-count";
+    wrongAnswerPenalty: 0;
+    maximumScore: number;
+    status: "verified" | "unverified";
+  };
   contentBlocks: ContentBlock[];
   questionCount: number;
   questions: ExamQuestion[];
+  answerKey: {
+    revision: string;
+    status: "verified" | "unverified";
+    verifiedAt?: string;
+    answers: Record<string, ChoiceKey>;
+  };
+}
+
+export interface ExamResult {
+  totalQuestions: number;
+  answered: number;
+  correct: number;
+  incorrect: number;
+  blank: number;
+  score: number | null;
+  completedAt: number;
+  completionReason: CompletionReason;
 }
 
 export interface ExamSession {
@@ -59,9 +83,10 @@ export interface ExamSession {
   state: ExamStatus;
   startedAt: number | null;
   completedAt: number | null;
+  completionReason?: CompletionReason | null;
   expiredAt: number | null;
   timer: ExamTimerState;
-  result: null;
+  result: ExamResult | null;
 }
 
 export interface StoredExamSession extends ExamSession {
