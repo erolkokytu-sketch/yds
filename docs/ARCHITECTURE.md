@@ -88,26 +88,52 @@ The pack forbids session fields through `additionalProperties: false`; the sessi
 
 ## Timer state model
 
-Persisted timer fields are `durationSeconds`, `accumulatedElapsedSeconds`, `runStartedAt`, and `pausedAt`. `remainingSeconds` is derived, never authoritative.
+The implemented `expected-end-v1` timer is timestamp-based and JSON-serializable. Its fields have one source-of-truth role each:
 
-When running at time `now`:
+| Field | Role |
+|---|---|
+| session `startedAt` | Immutable audit timestamp for the first start |
+| `durationMs` | Immutable duration copied from Exam Pack minutes |
+| `expectedEndAt` | Active only while `RUNNING` |
+| `pausedAt` | Audit timestamp active only while `PAUSED` |
+| `remainingMsWhenPaused` | Frozen remaining time active while `PAUSED`; zero when expired |
+
+The legacy accumulated-time timer shape remains readable in the v1 session schema for backward compatibility, but new sessions use `expected-end-v1`.
+
+Running:
 
 ```text
-effectiveElapsed = accumulatedElapsedSeconds + floor((now - runStartedAt) / 1000)
-remainingSeconds = max(0, durationSeconds - effectiveElapsed)
+remaining = clamp(expectedEndAt - now, 0, durationMs)
 ```
 
-When not running, `effectiveElapsed = accumulatedElapsedSeconds`. Wall-clock rollback must not increase remaining time within one live process; the implementation will combine a monotonic clock for live ticks with persisted wall timestamps for restore and clamp anomalous deltas for review.
+Paused:
 
-| From | Event | To | Atomic persisted change |
+```text
+remaining = remainingMsWhenPaused
+```
+
+Resume:
+
+```text
+expectedEndAt = now + remainingMsWhenPaused
+remainingMsWhenPaused = null
+```
+
+Expiration:
+
+```text
+remaining <= 0 → EXPIRED, displayed as 00:00:00
+```
+
+| From | Event | To | Atomic state change |
 |---|---|---|---|
-| `NOT_STARTED` | start | `RUNNING` | set `startedAt` and `runStartedAt` |
-| `RUNNING` | pause | `PAUSED` | add elapsed segment; clear `runStartedAt`; set `pausedAt` |
-| `PAUSED` | resume | `RUNNING` | clear `pausedAt`; set new `runStartedAt` |
-| `RUNNING`/`PAUSED` | submit | `COMPLETED` | settle elapsed time; clear running timestamp; set `completedAt` and result |
-| `RUNNING` | derived remaining reaches zero | `EXPIRED` | clamp elapsed to duration; clear running timestamp; set `expiredAt` |
+| `NOT_STARTED` | start | `RUNNING` | set session `startedAt`; set `expectedEndAt = now + durationMs` |
+| `RUNNING` | pause | `PAUSED` | calculate actual remaining; clear `expectedEndAt`; set `pausedAt` and frozen remaining |
+| `PAUSED` | resume | `RUNNING` | set a new `expectedEndAt`; clear paused fields |
+| `RUNNING`/`PAUSED` | submit | `COMPLETED` | reserved for the later completion flow |
+| `RUNNING` | derived remaining reaches zero | `EXPIRED` | clear end timestamp; freeze remaining at zero; set session `expiredAt` |
 
-`COMPLETED` and `EXPIRED` are terminal. Restore recomputes remaining time before rendering; a restored running session that reached zero transitions to `EXPIRED` immediately. Paused time never advances.
+The 250 ms React interval only requests a UI refresh. It never decrements persisted state. `visibilitychange` and focus refresh immediately from the injected clock, so background interval throttling cannot create drift. Clock rollback is clamped and cannot grant more than the original duration. `COMPLETED` and `EXPIRED` are terminal; paused time never advances.
 
 ## Backup and restore
 

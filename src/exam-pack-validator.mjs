@@ -161,13 +161,30 @@ export function validateExamSession(session) {
 
   const errors = [];
   const { state, startedAt, completedAt, expiredAt, timer } = session;
-  const stateRules = {
-    NOT_STARTED: startedAt === null && timer.runStartedAt === null && timer.pausedAt === null,
-    RUNNING: startedAt !== null && timer.runStartedAt !== null && timer.pausedAt === null,
-    PAUSED: startedAt !== null && timer.runStartedAt === null && timer.pausedAt !== null,
-    COMPLETED: completedAt !== null && timer.runStartedAt === null,
-    EXPIRED: expiredAt !== null && timer.runStartedAt === null,
-  };
+  const expectedEndModel = timer.model === "expected-end-v1";
+  const stateRules = expectedEndModel
+    ? {
+        NOT_STARTED: startedAt === null && timer.expectedEndAt === null,
+        RUNNING: startedAt !== null
+          && timer.expectedEndAt !== null
+          && timer.pausedAt === null
+          && timer.remainingMsWhenPaused === null,
+        PAUSED: startedAt !== null
+          && timer.expectedEndAt === null
+          && timer.pausedAt !== null
+          && timer.remainingMsWhenPaused !== null,
+        COMPLETED: completedAt !== null && timer.expectedEndAt === null,
+        EXPIRED: expiredAt !== null
+          && timer.expectedEndAt === null
+          && timer.remainingMsWhenPaused === 0,
+      }
+    : {
+        NOT_STARTED: startedAt === null && timer.runStartedAt === null && timer.pausedAt === null,
+        RUNNING: startedAt !== null && timer.runStartedAt !== null && timer.pausedAt === null,
+        PAUSED: startedAt !== null && timer.runStartedAt === null && timer.pausedAt !== null,
+        COMPLETED: completedAt !== null && timer.runStartedAt === null,
+        EXPIRED: expiredAt !== null && timer.runStartedAt === null,
+      };
 
   if (!stateRules[state]) {
     errors.push({
@@ -176,7 +193,7 @@ export function validateExamSession(session) {
       message: `timestamps are inconsistent with state ${state}`,
     });
   }
-  if (timer.accumulatedElapsedSeconds > timer.durationSeconds) {
+  if (!expectedEndModel && timer.accumulatedElapsedSeconds > timer.durationSeconds) {
     errors.push({
       code: "elapsed_exceeds_duration",
       path: "/timer/accumulatedElapsedSeconds",

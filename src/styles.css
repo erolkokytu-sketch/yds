@@ -226,25 +226,26 @@ button:focus-visible {
   font-weight: 700;
 }
 
-.timer-placeholder {
+.exam-timer {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.timer-placeholder span {
+.exam-timer span {
   font-variant-numeric: tabular-nums;
   font-weight: 750;
   letter-spacing: 0.04em;
 }
 
-.timer-placeholder button {
+.exam-timer button {
   min-height: 34px;
   padding: 0 9px;
   border: 1px solid var(--line);
   border-radius: 9px;
   background: var(--surface);
   font-size: 0.72rem;
+  font-weight: 700;
 }
 
 .player-summary {
@@ -521,6 +522,75 @@ button:focus-visible {
 
 .question-number[data-current="true"] .flag-mark {
   color: #ffd7ad;
+}
+
+.status-screen {
+  display: grid;
+  width: min(calc(100% - 32px), 500px);
+  min-height: 100vh;
+  margin-inline: auto;
+  align-content: center;
+  justify-items: center;
+  padding: 32px 0;
+  text-align: center;
+}
+
+.status-screen h1 {
+  margin: 4px 0 10px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(2.15rem, 10vw, 3.5rem);
+  font-weight: 600;
+  letter-spacing: -0.035em;
+}
+
+.status-question,
+.privacy-note,
+.expired-screen > p {
+  color: var(--muted);
+}
+
+.status-question {
+  margin: 0;
+  font-weight: 650;
+}
+
+.status-timer {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  margin: 36px 0 28px;
+  padding: 28px 20px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.status-timer span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.status-timer strong {
+  font-size: clamp(2rem, 12vw, 3.4rem);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.status-screen .primary-button {
+  max-width: 320px;
+}
+
+.privacy-note {
+  margin: 18px 0 0;
+  font-size: 0.84rem;
+}
+
+.expired-screen .notice {
+  width: 100%;
 }
 
 @media (min-width: 680px) {

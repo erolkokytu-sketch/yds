@@ -113,6 +113,33 @@ test("exam and session data structures remain separate", () => {
   assert.equal(validateExamSession(session).valid, false);
 });
 
+test("expected-end timer session is schema-valid and JSON-serializable", () => {
+  const session = {
+    schemaVersion: 1,
+    id: "session-timer-01",
+    examId: sample.id,
+    examPackSchemaVersion: 1,
+    state: "RUNNING",
+    currentQuestionIndex: 0,
+    answers: {},
+    flaggedQuestionIds: [],
+    startedAt: 1_000,
+    completedAt: null,
+    expiredAt: null,
+    timer: {
+      model: "expected-end-v1",
+      durationMs: 10_800_000,
+      expectedEndAt: 10_801_000,
+      pausedAt: null,
+      remainingMsWhenPaused: null,
+    },
+    result: null,
+  };
+
+  const roundTripped = JSON.parse(JSON.stringify(session));
+  assert.deepEqual(validateExamSession(roundTripped), { valid: true, errors: [] });
+});
+
 test("committed invalid fixture corpus fails validation", async () => {
   const fixtureUrls = [
     new URL("../fixtures/invalid/missing-option.json", import.meta.url),

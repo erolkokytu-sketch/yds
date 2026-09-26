@@ -1,7 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AUTO_ADVANCE_AFTER_ANSWER, AUTO_ADVANCE_DELAY_MS } from "./config";
 import { sampleExam } from "./exam";
-import type { ChoiceKey, ExamPack, ExamSession } from "./types";
+import {
+  formatDuration,
+  getRemainingMs,
+  pauseTimer,
+  resumeTimer,
+  startTimer,
+  synchronizeTimer,
+  systemClock,
+  TIMER_UI_TICK_MS,
+} from "./timer";
+import type { ChoiceKey, Clock, ExamPack, ExamSession } from "./types";
 
 const CHOICE_KEYS: ChoiceKey[] = ["A", "B", "C", "D", "E"];
 
@@ -132,7 +142,7 @@ function QuestionNavigator({
           {exam.questions.map((question, index) => {
             const isCurrent = index === session.currentQuestionIndex;
             const isAnswered = Boolean(session.answers[question.id]);
-            const isFlagged = session.flaggedQuestions.includes(question.id);
+            const isFlagged = session.flaggedQuestionIds.includes(question.id);
             const labels = [
               `Soru ${question.number}`,
               isCurrent ? "mevcut" : "",
@@ -166,20 +176,24 @@ function QuestionNavigator({
 function ExamPlayer({
   exam,
   session,
+  remainingMs,
   onAnswer,
   onNavigate,
   onToggleFlag,
+  onPause,
 }: {
   exam: ExamPack;
   session: ExamSession;
+  remainingMs: number;
   onAnswer: (answer: ChoiceKey) => void;
   onNavigate: (index: number) => void;
   onToggleFlag: () => void;
+  onPause: () => void;
 }) {
   const [navigatorOpen, setNavigatorOpen] = useState(false);
   const question = exam.questions[session.currentQuestionIndex];
   const selectedAnswer = session.answers[question.id];
-  const flagged = session.flaggedQuestions.includes(question.id);
+  const flagged = session.flaggedQuestionIds.includes(question.id);
   const contentBlocks = question.contentBlockIds.map((id) =>
     exam.contentBlocks.find((block) => block.id === id),
   ).filter((block) => block !== undefined);
@@ -196,9 +210,9 @@ function ExamPlayer({
         <button className="brand-button" type="button" onClick={() => routeTo("/")}>
           YDS Çalışma
         </button>
-        <div className="timer-placeholder" aria-label="Süre, Phase 4 için statik gösterim">
-          <span>03:00:00</span>
-          <button type="button" disabled title="Duraklatma Phase 4'te eklenecek">Duraklat</button>
+        <div className="exam-timer" aria-label="Kalan süre">
+          <span aria-live="off">{formatDuration(remainingMs)}</span>
+          <button type="button" onClick={onPause}>Duraklat</button>
         </div>
       </header>
 
@@ -290,9 +304,66 @@ function ExamPlayer({
   );
 }
 
-export function App() {
+function PauseScreen({
+  exam,
+  session,
+  remainingMs,
+  onResume,
+}: {
+  exam: ExamPack;
+  session: ExamSession;
+  remainingMs: number;
+  onResume: () => void;
+}) {
+  return (
+    <main className="status-screen pause-screen" aria-labelledby="pause-title">
+      <p className="eyebrow">{exam.title}</p>
+      <h1 id="pause-title">Sınav Duraklatıldı</h1>
+      <p className="status-question">Soru {session.currentQuestionIndex + 1} / {exam.questionCount}</p>
+      <div className="status-timer" aria-label="Duraklatılmış kalan süre">
+        <span>Kalan süre</span>
+        <strong>{formatDuration(remainingMs)}</strong>
+      </div>
+      <button className="primary-button" type="button" onClick={onResume}>
+        ▶ Devam Et
+      </button>
+      <p className="privacy-note">Soru içeriği duraklatma sırasında gizlenir.</p>
+    </main>
+  );
+}
+
+function ExpiredScreen({ exam }: { exam: ExamPack }) {
+  return (
+    <main className="status-screen expired-screen" aria-labelledby="expired-title">
+      <p className="eyebrow">{exam.title}</p>
+      <h1 id="expired-title">Süre Doldu</h1>
+      <div className="status-timer" aria-label="Kalan süre">
+        <span>Kalan süre</span>
+        <strong>00:00:00</strong>
+      </div>
+      <p>Sınav süren tamamlandı.</p>
+      <p className="notice">Sonuçlar sonraki fazda eklenecek.</p>
+    </main>
+  );
+}
+
+function withTimerSnapshot(
+  session: ExamSession,
+  snapshot: ReturnType<typeof synchronizeTimer>,
+  nowMs: number,
+): ExamSession {
+  return {
+    ...session,
+    state: snapshot.status,
+    timer: snapshot.timer,
+    expiredAt: snapshot.status === "EXPIRED" ? (session.expiredAt ?? nowMs) : session.expiredAt,
+  };
+}
+
+export function App({ clock = systemClock }: { clock?: Clock }) {
   const [path, setPath] = useState(window.location.pathname);
   const [session, setSession] = useState<ExamSession | null>(null);
+  const [nowMs, setNowMs] = useState(() => clock.now());
   const autoAdvanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clearAutoAdvance = useCallback(() => {
@@ -310,33 +381,80 @@ export function App() {
 
   useEffect(() => clearAutoAdvance, [clearAutoAdvance]);
 
+  useEffect(() => {
+    if (session?.state !== "RUNNING") return;
+
+    const refresh = () => {
+      const currentNow = clock.now();
+      setNowMs(currentNow);
+      setSession((current) => {
+        if (!current || current.state !== "RUNNING") return current;
+        const snapshot = synchronizeTimer(current.timer, current.state, currentNow);
+        if (snapshot.status === "EXPIRED") clearAutoAdvance();
+        return withTimerSnapshot(current, snapshot, currentNow);
+      });
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    const intervalId = window.setInterval(refresh, TIMER_UI_TICK_MS);
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("focus", refresh);
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [clearAutoAdvance, clock, session?.state]);
+
+  const expireIfNeeded = () => {
+    if (!session || session.state !== "RUNNING") return false;
+    const currentNow = clock.now();
+    const snapshot = synchronizeTimer(session.timer, session.state, currentNow);
+    if (snapshot.status !== "EXPIRED") return false;
+    clearAutoAdvance();
+    setNowMs(currentNow);
+    setSession(withTimerSnapshot(session, snapshot, currentNow));
+    return true;
+  };
+
   const startExam = () => {
     clearAutoAdvance();
+    const currentNow = clock.now();
+    const timerSnapshot = startTimer(sampleExam.durationMinutes * 60_000, currentNow);
+    setNowMs(currentNow);
     setSession({
+      schemaVersion: 1,
+      id: `session-${currentNow}`,
       examId: sampleExam.id,
+      examPackSchemaVersion: 1,
       currentQuestionIndex: 0,
       answers: {},
-      flaggedQuestions: [],
-      state: "RUNNING",
-      timer: {
-        durationSeconds: sampleExam.durationMinutes * 60,
-        phase: "PHASE_4_PLACEHOLDER",
-      },
+      flaggedQuestionIds: [],
+      state: timerSnapshot.status,
+      startedAt: currentNow,
+      completedAt: null,
+      expiredAt: null,
+      timer: timerSnapshot.timer,
+      result: null,
     });
     routeTo(`/exam/${sampleExam.id}`);
   };
 
   const navigateToQuestion = (index: number) => {
     clearAutoAdvance();
+    if (!session || session.state !== "RUNNING" || expireIfNeeded()) return;
     if (index < 0 || index >= sampleExam.questions.length) return;
-    setSession((current) => current ? { ...current, currentQuestionIndex: index } : current);
+    setSession((current) => current?.state === "RUNNING"
+      ? { ...current, currentQuestionIndex: index }
+      : current);
   };
 
   const answerCurrentQuestion = (answer: ChoiceKey) => {
-    if (!session) return;
+    if (!session || session.state !== "RUNNING" || expireIfNeeded()) return;
     clearAutoAdvance();
     const question = sampleExam.questions[session.currentQuestionIndex];
-    setSession((current) => current ? {
+    setSession((current) => current?.state === "RUNNING" ? {
       ...current,
       answers: { ...current.answers, [question.id]: answer },
     } : current);
@@ -345,8 +463,15 @@ export function App() {
     if (AUTO_ADVANCE_AFTER_ANSWER && hasNextQuestion) {
       const expectedIndex = session.currentQuestionIndex;
       autoAdvanceTimer.current = setTimeout(() => {
+        const currentNow = clock.now();
+        setNowMs(currentNow);
         setSession((current) => {
-          if (!current || current.currentQuestionIndex !== expectedIndex) return current;
+          if (!current || current.state !== "RUNNING") return current;
+          const snapshot = synchronizeTimer(current.timer, current.state, currentNow);
+          if (snapshot.status === "EXPIRED") {
+            return withTimerSnapshot(current, snapshot, currentNow);
+          }
+          if (current.currentQuestionIndex !== expectedIndex) return current;
           return { ...current, currentQuestionIndex: expectedIndex + 1 };
         });
         autoAdvanceTimer.current = null;
@@ -355,18 +480,35 @@ export function App() {
   };
 
   const toggleCurrentFlag = () => {
-    if (!session) return;
+    if (!session || session.state !== "RUNNING" || expireIfNeeded()) return;
     const questionId = sampleExam.questions[session.currentQuestionIndex].id;
     setSession((current) => {
-      if (!current) return current;
-      const isFlagged = current.flaggedQuestions.includes(questionId);
+      if (!current || current.state !== "RUNNING") return current;
+      const isFlagged = current.flaggedQuestionIds.includes(questionId);
       return {
         ...current,
-        flaggedQuestions: isFlagged
-          ? current.flaggedQuestions.filter((id) => id !== questionId)
-          : [...current.flaggedQuestions, questionId],
+        flaggedQuestionIds: isFlagged
+          ? current.flaggedQuestionIds.filter((id) => id !== questionId)
+          : [...current.flaggedQuestionIds, questionId],
       };
     });
+  };
+
+  const pauseExam = () => {
+    if (!session || session.state !== "RUNNING") return;
+    clearAutoAdvance();
+    const currentNow = clock.now();
+    const snapshot = pauseTimer(session.timer, session.state, currentNow);
+    setNowMs(currentNow);
+    setSession(withTimerSnapshot(session, snapshot, currentNow));
+  };
+
+  const resumeExam = () => {
+    if (!session || session.state !== "PAUSED") return;
+    const currentNow = clock.now();
+    const snapshot = resumeTimer(session.timer, session.state, currentNow);
+    setNowMs(currentNow);
+    setSession(withTimerSnapshot(session, snapshot, currentNow));
   };
 
   const examRoute = path === `/exam/${sampleExam.id}`;
@@ -374,13 +516,28 @@ export function App() {
     return <HomeScreen exam={sampleExam} onStart={startExam} interrupted={examRoute && !session} />;
   }
 
+  const remainingMs = getRemainingMs(session.timer, session.state, nowMs);
+  if (session.state === "PAUSED") {
+    return (
+      <PauseScreen
+        exam={sampleExam}
+        session={session}
+        remainingMs={remainingMs}
+        onResume={resumeExam}
+      />
+    );
+  }
+  if (session.state === "EXPIRED") return <ExpiredScreen exam={sampleExam} />;
+
   return (
     <ExamPlayer
       exam={sampleExam}
       session={session}
+      remainingMs={remainingMs}
       onAnswer={answerCurrentQuestion}
       onNavigate={navigateToQuestion}
       onToggleFlag={toggleCurrentFlag}
+      onPause={pauseExam}
     />
   );
 }

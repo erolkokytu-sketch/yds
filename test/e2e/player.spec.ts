@@ -56,3 +56,34 @@ test("360x800 viewport has no horizontal overflow and usable controls", async ({
   await expect(page.getByText("Soru 2 / 12")).toBeVisible();
   expectNoBrowserErrors();
 });
+
+test("timer pauses privately and resumes the same answered question", async ({ page }) => {
+  const expectNoBrowserErrors = monitorBrowserErrors(page);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Sınava Başla" }).click();
+  await expect(page.getByText("03:00:00")).toBeVisible();
+
+  await page.getByTestId("answer-choice").first().click();
+  await page.getByRole("button", { name: "Duraklat" }).click();
+  await expect(page.getByRole("heading", { name: "Sınav Duraklatıldı" })).toBeVisible();
+  await expect(page.getByTestId("answer-choice")).toHaveCount(0);
+  await expect(page.getByText(/The team kept a detailed/)).toHaveCount(0);
+
+  await page.getByRole("button", { name: "▶ Devam Et" }).click();
+  await expect(page.getByText("Soru 1 / 12")).toBeVisible();
+  await expect(page.getByTestId("answer-choice").first()).toHaveAttribute("aria-pressed", "true");
+  expectNoBrowserErrors();
+});
+
+test("timestamp jump expires the exam without waiting three hours", async ({ page }) => {
+  const expectNoBrowserErrors = monitorBrowserErrors(page);
+  await page.clock.install({ time: new Date("2026-01-01T12:00:00Z") });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Sınava Başla" }).click();
+  await page.clock.fastForward(180 * 60_000 + 1_000);
+
+  await expect(page.getByRole("heading", { name: "Süre Doldu" })).toBeVisible();
+  await expect(page.getByText("00:00:00")).toBeVisible();
+  await expect(page.getByTestId("answer-choice")).toHaveCount(0);
+  expectNoBrowserErrors();
+});

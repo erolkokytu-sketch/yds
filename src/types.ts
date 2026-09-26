@@ -1,4 +1,17 @@
 export type ChoiceKey = "A" | "B" | "C" | "D" | "E";
+export type ExamStatus = "NOT_STARTED" | "RUNNING" | "PAUSED" | "COMPLETED" | "EXPIRED";
+
+export interface ExamTimerState {
+  model: "expected-end-v1";
+  durationMs: number;
+  expectedEndAt: number | null;
+  pausedAt: number | null;
+  remainingMsWhenPaused: number | null;
+}
+
+export interface Clock {
+  now: () => number;
+}
 
 export interface ContentBlock {
   id: string;
@@ -36,13 +49,17 @@ export interface ExamPack {
 }
 
 export interface ExamSession {
+  schemaVersion: 1;
+  id: string;
   examId: string;
+  examPackSchemaVersion: 1;
   currentQuestionIndex: number;
   answers: Record<string, ChoiceKey>;
-  flaggedQuestions: string[];
-  state: "RUNNING";
-  timer: {
-    durationSeconds: number;
-    phase: "PHASE_4_PLACEHOLDER";
-  };
+  flaggedQuestionIds: string[];
+  state: ExamStatus;
+  startedAt: number | null;
+  completedAt: number | null;
+  expiredAt: number | null;
+  timer: ExamTimerState;
+  result: null;
 }

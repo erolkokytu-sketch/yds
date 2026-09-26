@@ -10,7 +10,6 @@
     "examId",
     "examPackSchemaVersion",
     "state",
-    "currentQuestionNumber",
     "answers",
     "flaggedQuestionIds",
     "startedAt",
@@ -26,6 +25,7 @@
     "examPackSchemaVersion": { "const": 1 },
     "state": { "enum": ["NOT_STARTED", "RUNNING", "PAUSED", "COMPLETED", "EXPIRED"] },
     "currentQuestionNumber": { "type": "integer", "minimum": 1 },
+    "currentQuestionIndex": { "type": "integer", "minimum": 0 },
     "answers": {
       "type": "object",
       "additionalProperties": { "enum": ["A", "B", "C", "D", "E"] }
@@ -35,19 +35,14 @@
       "uniqueItems": true,
       "items": { "type": "string", "minLength": 1 }
     },
-    "startedAt": { "type": ["string", "null"], "format": "date-time" },
-    "completedAt": { "type": ["string", "null"], "format": "date-time" },
-    "expiredAt": { "type": ["string", "null"], "format": "date-time" },
+    "startedAt": { "$ref": "#/$defs/timestamp" },
+    "completedAt": { "$ref": "#/$defs/timestamp" },
+    "expiredAt": { "$ref": "#/$defs/timestamp" },
     "timer": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["durationSeconds", "accumulatedElapsedSeconds", "runStartedAt", "pausedAt"],
-      "properties": {
-        "durationSeconds": { "type": "integer", "minimum": 1 },
-        "accumulatedElapsedSeconds": { "type": "integer", "minimum": 0 },
-        "runStartedAt": { "type": ["string", "null"], "format": "date-time" },
-        "pausedAt": { "type": ["string", "null"], "format": "date-time" }
-      }
+      "oneOf": [
+        { "$ref": "#/$defs/expectedEndTimer" },
+        { "$ref": "#/$defs/legacyAccumulatedTimer" }
+      ]
     },
     "result": {
       "oneOf": [
@@ -64,6 +59,48 @@
           }
         }
       ]
+    }
+  },
+  "oneOf": [
+    {
+      "required": ["currentQuestionNumber"],
+      "properties": { "currentQuestionNumber": { "type": "integer", "minimum": 1 } }
+    },
+    {
+      "required": ["currentQuestionIndex"],
+      "properties": { "currentQuestionIndex": { "type": "integer", "minimum": 0 } }
+    }
+  ],
+  "$defs": {
+    "timestamp": {
+      "oneOf": [
+        { "type": "string", "format": "date-time" },
+        { "type": "integer", "minimum": 0 },
+        { "type": "null" }
+      ]
+    },
+    "expectedEndTimer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model", "durationMs", "expectedEndAt", "pausedAt", "remainingMsWhenPaused"],
+      "properties": {
+        "model": { "const": "expected-end-v1" },
+        "durationMs": { "type": "integer", "minimum": 1 },
+        "expectedEndAt": { "type": ["integer", "null"], "minimum": 0 },
+        "pausedAt": { "type": ["integer", "null"], "minimum": 0 },
+        "remainingMsWhenPaused": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    },
+    "legacyAccumulatedTimer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["durationSeconds", "accumulatedElapsedSeconds", "runStartedAt", "pausedAt"],
+      "properties": {
+        "durationSeconds": { "type": "integer", "minimum": 1 },
+        "accumulatedElapsedSeconds": { "type": "integer", "minimum": 0 },
+        "runStartedAt": { "type": ["string", "null"], "format": "date-time" },
+        "pausedAt": { "type": ["string", "null"], "format": "date-time" }
+      }
     }
   }
 }
