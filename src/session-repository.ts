@@ -1,10 +1,11 @@
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 import { validateSessionForRestore } from "./session-validation";
-import type { ExamSession, StoredExamSession } from "./types";
+import type { ExamSession, InstalledExamPack, StoredExamSession } from "./types";
 
 export const DB_NAME = "yds-study";
-export const DB_VERSION = 1;
+export const DB_VERSION = 2;
 export const SESSION_STORE = "examSessions";
+export const EXAM_PACK_STORE = "examPacks";
 export const SESSION_STORAGE_VERSION = 1;
 
 interface YdsStudyDatabase extends DBSchema {
@@ -14,6 +15,13 @@ interface YdsStudyDatabase extends DBSchema {
     indexes: {
       "by-exam-id": string;
       "by-updated-at": number;
+    };
+  };
+  examPacks: {
+    key: string;
+    value: InstalledExamPack;
+    indexes: {
+      "by-installed-at": number;
     };
   };
 }
@@ -60,6 +68,10 @@ export class SessionRepository implements SessionRepositoryContract {
           const store = database.createObjectStore(SESSION_STORE, { keyPath: "id" });
           store.createIndex("by-exam-id", "examId");
           store.createIndex("by-updated-at", "updatedAt");
+        }
+        if (!database.objectStoreNames.contains(EXAM_PACK_STORE)) {
+          const store = database.createObjectStore(EXAM_PACK_STORE, { keyPath: "id" });
+          store.createIndex("by-installed-at", "installedAt");
         }
       },
     });

@@ -1,6 +1,6 @@
 # YDS Player architecture
 
-Status: `PHASE_6_RESULTS_BASELINE`
+Status: `PHASE_7_EXAM_PACK_BASELINE`
 
 ## Constraints and boundaries
 
@@ -48,27 +48,37 @@ Two approaches were considered:
 
 v1 uses exactly one `answerKey.answers` map as the source of truth. Questions contain no correct answer. Validation requires one A–E answer per question, rejects orphan answers, and records key revision/status. A verified key also needs `verifiedAt`.
 
-## Exam Pack importer
+## Exam Pack import/export
 
-The future importer is a boundary process, not part of playback:
+The browser importer is a boundary process, not part of playback:
 
-1. ingest a user-selected local source;
-2. extract deterministically;
-3. normalize into a draft pack;
-4. require human review for ambiguous text, order, provenance, and answers;
-5. run JSON Schema and semantic validation;
-6. write an immutable pack only after validation passes.
+1. accept a user-selected `.ydspack` (or development `.json`) up to 10 MB;
+2. decode strict UTF-8 and parse JSON without executing content;
+3. reject unsupported schema versions;
+4. run the same JSON Schema and semantic validator used by the CLI;
+5. calculate a canonical SHA-256 fingerprint and check ID duplicates/conflicts;
+6. show metadata preview;
+7. write the immutable pack atomically only after confirmation.
 
-It must never fill missing official questions or answers, promote a 10% release to `full`, or infer official identity. Import failures produce reviewable diagnostics, not partially trusted packs.
+It never fills missing questions/answers, promotes completeness, or infers official identity.
+Import failures produce concise diagnostics and no partial record. Object keys are recursively
+sorted for fingerprinting; array order remains significant because it defines exam display order.
+Filename and installation time are excluded. Export emits only the canonical Exam Pack as
+human-readable JSON and never includes sessions, user answers, results, flags, or timers.
 
 ## IndexedDB persistence
 
-The implemented database is `yds-study`, version 1. It currently creates only the
-`examSessions` store; pack, settings, backup, and cache stores are deferred. The store uses
-session `id` as its key and has `by-exam-id` and `by-updated-at` indexes. Session IDs are
-independent from exam IDs, so multiple exams and attempts do not share a primary key.
+The implemented database is `yds-study`, version 2, with two stores:
 
-`SessionRepository` is the only IndexedDB boundary. Writes are queued in invocation order;
+| Store | Key | Content |
+|---|---|---|
+| `examSessions` | session `id` | Active and terminal attempt snapshots |
+| `examPacks` | exam `id` | Immutable installed pack plus `installedAt` and fingerprint |
+
+The v1→v2 upgrade only creates `examPacks`; it does not clear or rewrite `examSessions`, so
+active sessions and completed results survive. Session IDs remain independent from exam IDs.
+
+`SessionRepository` and `ExamPackRepository` are the IndexedDB boundaries. Session writes are queued in invocation order;
 rapid answer, navigation, flag, pause, resume, and expiration transitions therefore cannot
 overwrite a newer snapshot with an older one. Each record adds `storageVersion: 1` and
 `updatedAt` to the JSON-serializable session. Unsupported versions and schema-invalid records
@@ -86,6 +96,11 @@ This keeps database version 1 and avoids a destructive migration: active lookup 
 `RUNNING`/`PAUSED`, while completed-attempt lookup accepts only `COMPLETED`/`EXPIRED`.
 Starting a retake inserts a new session and never overwrites the terminal attempt. Active
 sessions take precedence over the latest completed result during hydration.
+
+Home hydrates a library composed of built-in packs plus installed packs. Every Player, timer,
+result, review, retake, and persistence path receives the selected `ExamPack`; imported exams
+have no special Player implementation. `session.examId` resolves against this library. Deletion
+is intentionally absent, so an installed pack cannot become orphaned through the UI.
 
 ## Exam Session model
 

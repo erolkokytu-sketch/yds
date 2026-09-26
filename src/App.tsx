@@ -1,6 +1,17 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { AUTO_ADVANCE_AFTER_ANSWER, AUTO_ADVANCE_DELAY_MS } from "./config";
 import { sampleExam } from "./exam";
+import {
+  prepareExamPackImport,
+  safeExamPackFileName,
+  serializeExamPack,
+  type ExamPackImportError,
+  type PreparedExamPack,
+} from "./exam-pack-file";
+import {
+  defaultExamPackRepository,
+  type ExamPackRepositoryContract,
+} from "./exam-pack-repository";
 import { finalizeExamSession, getQuestionOutcome, type QuestionOutcome } from "./result";
 import { answerSession, navigateSession, toggleFlagSession } from "./session-actions";
 import {
@@ -21,6 +32,11 @@ import type { ChoiceKey, Clock, CompletionReason, ExamPack, ExamSession } from "
 
 const CHOICE_KEYS: ChoiceKey[] = ["A", "B", "C", "D", "E"];
 
+interface ExamLibraryEntry {
+  exam: ExamPack;
+  installed: boolean;
+}
+
 function currentQuestionIndex(exam: ExamPack, session: ExamSession) {
   const index = exam.questions.findIndex((question) => question.id === session.currentQuestionId);
   return index >= 0 ? index : 0;
@@ -31,28 +47,46 @@ function routeTo(path: string) {
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
+function examUrl(examId: string) {
+  return `/exam/${encodeURIComponent(examId)}`;
+}
+
+function routeExam(path: string): { examId: string; review: boolean } | null {
+  const match = path.match(/^\/exam\/([^/]+)(\/review)?$/);
+  return match ? { examId: decodeURIComponent(match[1]), review: Boolean(match[2]) } : null;
+}
+
 function HomeScreen({
-  exam,
-  session,
+  entries,
+  sessions,
+  interrupted,
+  storageError,
+  importError,
+  importSuccess,
+  fileInputRef,
+  onFileSelected,
   onStart,
   onViewResult,
   onRequestRetake,
-  interrupted,
-  storageError,
+  onExport,
+  onImportSuccessOpen,
+  onDismissImportSuccess,
 }: {
-  exam: ExamPack;
-  session: ExamSession | null;
-  onStart: () => void;
-  onViewResult: () => void;
-  onRequestRetake: () => void;
+  entries: ExamLibraryEntry[];
+  sessions: Record<string, ExamSession | undefined>;
   interrupted: boolean;
   storageError: string | null;
+  importError: ExamPackImportError | null;
+  importSuccess: ExamPack | null;
+  fileInputRef: RefObject<HTMLInputElement | null>;
+  onFileSelected: (file: File) => void;
+  onStart: (exam: ExamPack) => void;
+  onViewResult: (exam: ExamPack) => void;
+  onRequestRetake: (exam: ExamPack) => void;
+  onExport: (exam: ExamPack) => void;
+  onImportSuccessOpen: (exam: ExamPack) => void;
+  onDismissImportSuccess: () => void;
 }) {
-  const resumable = session && ["RUNNING", "PAUSED"].includes(session.state);
-  const completedResult = session && ["COMPLETED", "EXPIRED"].includes(session.state)
-    ? session.result
-    : null;
-  const questionIndex = session ? currentQuestionIndex(exam, session) : 0;
   return (
     <main className="home" aria-labelledby="exam-list-title">
       <section className="hero">
@@ -64,7 +98,7 @@ function HomeScreen({
       <section aria-labelledby="exam-list-title">
         <div className="section-heading">
           <h2 id="exam-list-title">Sınavlar</h2>
-          <span>1 sınav</span>
+          <span>{entries.length} sınav</span>
         </div>
         {interrupted && (
           <p className="notice" role="status">
@@ -72,45 +106,92 @@ function HomeScreen({
           </p>
         )}
         {storageError && <p className="storage-warning" role="alert">{storageError}</p>}
-        <article className="exam-card">
-          <div className="exam-card-topline">
-            <span className="practice-badge">AI Deneme</span>
-            <span>{exam.language}</span>
+        {importError && (
+          <div className="import-feedback import-error" role="alert">
+            <strong>{importError.message}</strong>
+            {importError.details.length > 0 && (
+              <ul>{importError.details.map((detail) => <li key={detail}>{detail}</li>)}</ul>
+            )}
           </div>
-          <h3>{exam.title}</h3>
-          <dl className="exam-meta">
-            <div>
-              <dt>Soru</dt>
-              <dd>{exam.questionCount}</dd>
-            </div>
-            <div>
-              <dt>Süre</dt>
-              <dd>{exam.durationMinutes} dakika</dd>
-            </div>
-          </dl>
-          {resumable && (
-            <div className="active-session-summary" aria-label="Aktif sınav oturumu">
-              <strong>{session.state === "PAUSED" ? "Duraklatıldı" : "Sınav devam ediyor"}</strong>
-              <span>Soru {questionIndex + 1} / {exam.questionCount}</span>
-            </div>
-          )}
-          {completedResult && (
-            <div className="active-session-summary" aria-label="Son sınav sonucu">
-              <strong>Son sonuç</strong>
-              <span>{completedResult.correct} doğru · {completedResult.incorrect} yanlış · {completedResult.blank} boş</span>
-            </div>
-          )}
-          {completedResult ? (
+        )}
+        {importSuccess && (
+          <div className="import-feedback import-success" role="status">
+            <strong>Sınav eklendi</strong>
+            <span>{importSuccess.title}</span>
+            <span>{importSuccess.questionCount} soru · {importSuccess.durationMinutes} dakika</span>
             <div className="home-actions">
-              <button className="primary-button" type="button" onClick={onViewResult}>Sonucu Gör</button>
-              <button className="secondary-button" type="button" onClick={onRequestRetake}>Yeniden Çöz</button>
+              <button className="primary-button" type="button" onClick={() => onImportSuccessOpen(importSuccess)}>
+                Sınava Git
+              </button>
+              <button className="secondary-button" type="button" onClick={onDismissImportSuccess}>Tamam</button>
             </div>
-          ) : (
-            <button className="primary-button" type="button" onClick={onStart}>
-              {resumable ? "Devam Et" : "Sınava Başla"}
-            </button>
-          )}
-        </article>
+          </div>
+        )}
+        <div className="exam-library">
+          {entries.map(({ exam, installed }) => {
+            const session = sessions[exam.id];
+            const resumable = session && ["RUNNING", "PAUSED"].includes(session.state);
+            const completedResult = session && ["COMPLETED", "EXPIRED"].includes(session.state)
+              ? session.result
+              : null;
+            const questionIndex = session ? currentQuestionIndex(exam, session) : 0;
+            return (
+              <article className="exam-card" key={exam.id} data-exam-id={exam.id}>
+                <div className="exam-card-topline">
+                  <span className="practice-badge">{exam.kind === "official" ? "Resmî sınav" : "Deneme"}</span>
+                  <span>{installed ? "Yüklü · " : ""}{exam.language}</span>
+                </div>
+                <h3>{exam.title}</h3>
+                <dl className="exam-meta">
+                  <div><dt>Soru</dt><dd>{exam.questionCount}</dd></div>
+                  <div><dt>Süre</dt><dd>{exam.durationMinutes} dakika</dd></div>
+                </dl>
+                {resumable && (
+                  <div className="active-session-summary" aria-label="Aktif sınav oturumu">
+                    <strong>{session.state === "PAUSED" ? "Duraklatıldı" : "Sınav devam ediyor"}</strong>
+                    <span>Soru {questionIndex + 1} / {exam.questionCount}</span>
+                  </div>
+                )}
+                {completedResult && !resumable && (
+                  <div className="active-session-summary" aria-label="Son sınav sonucu">
+                    <strong>Son sonuç</strong>
+                    <span>{completedResult.correct} doğru · {completedResult.incorrect} yanlış · {completedResult.blank} boş</span>
+                  </div>
+                )}
+                {completedResult && !resumable ? (
+                  <div className="home-actions">
+                    <button className="primary-button" type="button" onClick={() => onViewResult(exam)}>Sonucu Gör</button>
+                    <button className="secondary-button" type="button" onClick={() => onRequestRetake(exam)}>Yeniden Çöz</button>
+                  </div>
+                ) : (
+                  <button className="primary-button" type="button" onClick={() => onStart(exam)}>
+                    {resumable ? "Devam Et" : "Sınava Başla"}
+                  </button>
+                )}
+                {installed && (
+                  <button className="export-button" type="button" onClick={() => onExport(exam)}>
+                    Sınav Paketini Dışa Aktar
+                  </button>
+                )}
+              </article>
+            );
+          })}
+        </div>
+        <input
+          ref={fileInputRef}
+          className="visually-hidden"
+          type="file"
+          accept=".ydspack,.json,application/json"
+          data-testid="exam-pack-input"
+          onChange={(event) => {
+            const file = event.currentTarget.files?.[0];
+            if (file) onFileSelected(file);
+            event.currentTarget.value = "";
+          }}
+        />
+        <button className="import-button" type="button" onClick={() => fileInputRef.current?.click()}>
+          + Sınav Paketi Ekle
+        </button>
       </section>
     </main>
   );
@@ -467,7 +548,8 @@ function ConfirmDialog({
   );
 }
 
-function FinishDialog({ session, remainingMs, busy, onCancel, onConfirm }: {
+function FinishDialog({ exam, session, remainingMs, busy, onCancel, onConfirm }: {
+  exam: ExamPack;
   session: ExamSession;
   remainingMs: number;
   busy: boolean;
@@ -486,7 +568,7 @@ function FinishDialog({ session, remainingMs, busy, onCancel, onConfirm }: {
     >
       <dl className="finish-summary">
         <div><dt>Cevaplanan</dt><dd>{answered}</dd></div>
-        <div><dt>Boş</dt><dd>{sampleExam.questionCount - answered}</dd></div>
+        <div><dt>Boş</dt><dd>{exam.questionCount - answered}</dd></div>
         <div><dt>Sonra Bak</dt><dd>{session.flaggedQuestionIds.length}</dd></div>
         <div><dt>Kalan süre</dt><dd>{formatDuration(remainingMs)}</dd></div>
       </dl>
@@ -704,21 +786,35 @@ function LoadingScreen() {
 export function App({
   clock = systemClock,
   repository = defaultSessionRepository,
+  examPackRepository = defaultExamPackRepository,
 }: {
   clock?: Clock;
   repository?: SessionRepositoryContract;
+  examPackRepository?: ExamPackRepositoryContract;
 }) {
   const [path, setPath] = useState(window.location.pathname);
-  const [session, setSession] = useState<ExamSession | null>(null);
+  const [entries, setEntries] = useState<ExamLibraryEntry[]>([
+    { exam: sampleExam, installed: false },
+  ]);
+  const [sessions, setSessions] = useState<Record<string, ExamSession | undefined>>({});
   const [nowMs, setNowMs] = useState(() => clock.now());
   const [hydrationState, setHydrationState] = useState<HydrationState>("loading");
   const [storageError, setStorageError] = useState<string | null>(null);
   const [finishOpen, setFinishOpen] = useState(false);
-  const [retakeOpen, setRetakeOpen] = useState(false);
+  const [retakeExam, setRetakeExam] = useState<ExamPack | null>(null);
   const [completionSaving, setCompletionSaving] = useState(false);
-  const sessionRef = useRef<ExamSession | null>(null);
+  const [importCandidate, setImportCandidate] = useState<PreparedExamPack | null>(null);
+  const [importError, setImportError] = useState<ExamPackImportError | null>(null);
+  const [importSuccess, setImportSuccess] = useState<ExamPack | null>(null);
+  const sessionsRef = useRef<Record<string, ExamSession | undefined>>({});
   const autoAdvanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoAdvanceToken = useRef(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const routeInfo = routeExam(path);
+  const exam = routeInfo
+    ? entries.find((entry) => entry.exam.id === routeInfo.examId)?.exam
+    : undefined;
+  const session = exam ? sessions[exam.id] : undefined;
 
   const clearAutoAdvance = useCallback(() => {
     autoAdvanceToken.current += 1;
@@ -738,41 +834,42 @@ export function App({
   }, [repository]);
 
   const commitSession = useCallback((nextSession: ExamSession, updatedAt = clock.now()) => {
-    sessionRef.current = nextSession;
-    setSession(nextSession);
+    sessionsRef.current = { ...sessionsRef.current, [nextSession.examId]: nextSession };
+    setSessions((current) => ({ ...current, [nextSession.examId]: nextSession }));
     return persistSession(nextSession, updatedAt);
   }, [clock, persistSession]);
 
   const finalizeCurrentSession = useCallback(async (completionReason: CompletionReason) => {
-    const current = sessionRef.current;
+    if (!exam) return;
+    const current = sessionsRef.current[exam.id];
     if (!current) return;
     if (["COMPLETED", "EXPIRED"].includes(current.state) && current.result) {
-      setSession(current);
+      setSessions((sessionsState) => ({ ...sessionsState, [exam.id]: current }));
       return;
     }
 
     clearAutoAdvance();
     const completedAt = clock.now();
-    const terminal = finalizeExamSession(sampleExam, current, completionReason, completedAt);
-    sessionRef.current = terminal;
+    const terminal = finalizeExamSession(exam, current, completionReason, completedAt);
+    sessionsRef.current = { ...sessionsRef.current, [exam.id]: terminal };
     setCompletionSaving(true);
     try {
       await repository.saveSession(terminal, completedAt);
       setStorageError(null);
-      setSession(terminal);
+      setSessions((currentSessions) => ({ ...currentSessions, [exam.id]: terminal }));
       setFinishOpen(false);
     } catch (error) {
       console.error("[session-storage] completion save failed", error);
       setStorageError("Sınav sonucu kaydedilemedi. Lütfen tekrar dene.");
       if (completionReason === "manual") {
-        sessionRef.current = current;
+        sessionsRef.current = { ...sessionsRef.current, [exam.id]: current };
       } else {
-        setSession(terminal);
+        setSessions((currentSessions) => ({ ...currentSessions, [exam.id]: terminal }));
       }
     } finally {
       setCompletionSaving(false);
     }
-  }, [clearAutoAdvance, clock, repository]);
+  }, [clearAutoAdvance, clock, exam, repository]);
 
   useEffect(() => {
     const handleRouteChange = () => setPath(window.location.pathname);
@@ -786,33 +883,43 @@ export function App({
     let cancelled = false;
     const hydrate = async () => {
       try {
-        const active = await repository.findActiveSessionForExam(sampleExam.id);
-        const restored = active
-          ?? await repository.findLatestCompletedAttemptForExam(sampleExam.id);
+        const installed = await examPackRepository.listInstalled();
+        const hydratedEntries: ExamLibraryEntry[] = [
+          { exam: sampleExam, installed: false },
+          ...installed
+            .filter((record) => record.id !== sampleExam.id)
+            .map((record) => ({ exam: record.examPack, installed: true })),
+        ];
         if (cancelled) return;
-        if (restored && !sampleExam.questions.some(({ id }) => id === restored.currentQuestionId)) {
-          console.error(`[session-storage] ignored session ${restored.id} with unknown currentQuestionId`);
-          setHydrationState("ready");
-          return;
-        }
+        const hydratedSessions: Record<string, ExamSession | undefined> = {};
+        for (const { exam: hydratedExam } of hydratedEntries) {
+          const active = await repository.findActiveSessionForExam(hydratedExam.id);
+          const restored = active
+            ?? await repository.findLatestCompletedAttemptForExam(hydratedExam.id);
+          if (!restored) continue;
+          if (!hydratedExam.questions.some(({ id }) => id === restored.currentQuestionId)) {
+            console.error(`[session-storage] ignored session ${restored.id} with unknown currentQuestionId`);
+            continue;
+          }
 
-        if (restored) {
           const currentNow = clock.now();
           const snapshot = synchronizeTimer(restored.timer, restored.state, currentNow);
           const timerReconciled = withTimerSnapshot(restored, snapshot, currentNow);
-          const needsExpirationResult = timerReconciled.state === "EXPIRED" && !timerReconciled.result;
-          const reconciled = needsExpirationResult
-            ? finalizeExamSession(sampleExam, timerReconciled, "expired", currentNow)
+          const reconciled = timerReconciled.state === "EXPIRED" && !timerReconciled.result
+            ? finalizeExamSession(hydratedExam, timerReconciled, "expired", currentNow)
             : timerReconciled;
-          if (reconciled !== restored
-            && (reconciled.state !== restored.state || reconciled.result !== restored.result)) {
+          if (reconciled.state !== restored.state || reconciled.result !== restored.result) {
             await persistSession(reconciled, currentNow);
           }
-          sessionRef.current = reconciled;
-          setSession(reconciled);
+          hydratedSessions[hydratedExam.id] = reconciled;
           setNowMs(currentNow);
         }
-        if (!cancelled) setHydrationState("ready");
+        if (!cancelled) {
+          sessionsRef.current = hydratedSessions;
+          setEntries(hydratedEntries);
+          setSessions(hydratedSessions);
+          setHydrationState("ready");
+        }
       } catch (error) {
         console.error("[session-storage] hydration failed", error);
         if (!cancelled) {
@@ -825,7 +932,7 @@ export function App({
     return () => {
       cancelled = true;
     };
-  }, [clock, persistSession, repository]);
+  }, [clock, examPackRepository, persistSession, repository]);
 
   useEffect(() => {
     if (session?.state !== "RUNNING") return;
@@ -833,11 +940,15 @@ export function App({
     const refresh = () => {
       const currentNow = clock.now();
       setNowMs(currentNow);
-      const current = sessionRef.current;
+      if (!exam) return;
+      const current = sessionsRef.current[exam.id];
       if (!current || current.state !== "RUNNING") return;
       const snapshot = synchronizeTimer(current.timer, current.state, currentNow);
       if (snapshot.status === "EXPIRED") {
-        sessionRef.current = withTimerSnapshot(current, snapshot, currentNow);
+        sessionsRef.current = {
+          ...sessionsRef.current,
+          [exam.id]: withTimerSnapshot(current, snapshot, currentNow),
+        };
         void finalizeCurrentSession("expired");
       }
     };
@@ -852,32 +963,36 @@ export function App({
       document.removeEventListener("visibilitychange", handleVisibility);
       window.removeEventListener("focus", refresh);
     };
-  }, [clock, finalizeCurrentSession, session?.state]);
+  }, [clock, exam, finalizeCurrentSession, session?.state]);
 
   const expireIfNeeded = () => {
-    const current = sessionRef.current;
+    if (!exam) return false;
+    const current = sessionsRef.current[exam.id];
     if (!current || current.state !== "RUNNING") return false;
     const currentNow = clock.now();
     const snapshot = synchronizeTimer(current.timer, current.state, currentNow);
     if (snapshot.status !== "EXPIRED") return false;
     setNowMs(currentNow);
-    sessionRef.current = withTimerSnapshot(current, snapshot, currentNow);
+    sessionsRef.current = {
+      ...sessionsRef.current,
+      [exam.id]: withTimerSnapshot(current, snapshot, currentNow),
+    };
     void finalizeCurrentSession("expired");
     return true;
   };
 
-  const createNewSession = () => {
+  const createNewSession = (targetExam: ExamPack) => {
     clearAutoAdvance();
     const currentNow = clock.now();
-    const timerSnapshot = startTimer(sampleExam.durationMinutes * 60_000, currentNow);
+    const timerSnapshot = startTimer(targetExam.durationMinutes * 60_000, currentNow);
     const nextSession: ExamSession = {
       schemaVersion: 1,
       id: typeof crypto.randomUUID === "function"
         ? `session-${crypto.randomUUID()}`
         : `session-${currentNow}-${Math.random().toString(36).slice(2)}`,
-      examId: sampleExam.id,
+      examId: targetExam.id,
       examPackSchemaVersion: 1,
-      currentQuestionId: sampleExam.questions[0].id,
+      currentQuestionId: targetExam.questions[0].id,
       answers: {},
       flaggedQuestionIds: [],
       state: timerSnapshot.status,
@@ -890,48 +1005,52 @@ export function App({
     };
     setNowMs(currentNow);
     void commitSession(nextSession, currentNow);
-    routeTo(`/exam/${sampleExam.id}`);
+    routeTo(examUrl(targetExam.id));
   };
 
-  const startOrContinueExam = () => {
-    const existing = sessionRef.current;
+  const startOrContinueExam = (targetExam: ExamPack) => {
+    const existing = sessionsRef.current[targetExam.id];
     if (existing && ["RUNNING", "PAUSED"].includes(existing.state)) {
-      routeTo(`/exam/${sampleExam.id}`);
+      routeTo(examUrl(targetExam.id));
       return;
     }
-    createNewSession();
+    createNewSession(targetExam);
   };
 
   const startRetake = () => {
-    setRetakeOpen(false);
-    createNewSession();
+    if (!retakeExam) return;
+    const target = retakeExam;
+    setRetakeExam(null);
+    createNewSession(target);
   };
 
   const navigateToQuestion = (index: number) => {
     clearAutoAdvance();
-    const current = sessionRef.current;
+    if (!exam) return;
+    const current = sessionsRef.current[exam.id];
     if (!current || current.state !== "RUNNING" || expireIfNeeded()) return;
-    const question = sampleExam.questions[index];
+    const question = exam.questions[index];
     if (!question) return;
     void commitSession(navigateSession(current, question.id));
   };
 
   const answerCurrentQuestion = (answer: ChoiceKey) => {
-    const current = sessionRef.current;
+    if (!exam) return;
+    const current = sessionsRef.current[exam.id];
     if (!current || current.state !== "RUNNING" || expireIfNeeded()) return;
     clearAutoAdvance();
-    const questionIndex = currentQuestionIndex(sampleExam, current);
-    const question = sampleExam.questions[questionIndex];
+    const questionIndex = currentQuestionIndex(exam, current);
+    const question = exam.questions[questionIndex];
     const answeredSession = answerSession(current, question.id, answer);
     const saveAnswer = commitSession(answeredSession);
 
-    if (AUTO_ADVANCE_AFTER_ANSWER && questionIndex < sampleExam.questions.length - 1) {
+    if (AUTO_ADVANCE_AFTER_ANSWER && questionIndex < exam.questions.length - 1) {
       const expectedQuestionId = question.id;
       const token = autoAdvanceToken.current;
       void saveAnswer.then(() => {
         if (token !== autoAdvanceToken.current) return;
         autoAdvanceTimer.current = setTimeout(() => {
-          const latest = sessionRef.current;
+          const latest = sessionsRef.current[exam.id];
           const currentNow = clock.now();
           setNowMs(currentNow);
           if (!latest || latest.state !== "RUNNING" || latest.currentQuestionId !== expectedQuestionId) {
@@ -939,11 +1058,14 @@ export function App({
           }
           const snapshot = synchronizeTimer(latest.timer, latest.state, currentNow);
           if (snapshot.status === "EXPIRED") {
-            sessionRef.current = withTimerSnapshot(latest, snapshot, currentNow);
+            sessionsRef.current = {
+              ...sessionsRef.current,
+              [exam.id]: withTimerSnapshot(latest, snapshot, currentNow),
+            };
             void finalizeCurrentSession("expired");
             return;
           }
-          const nextQuestion = sampleExam.questions[questionIndex + 1];
+          const nextQuestion = exam.questions[questionIndex + 1];
           void commitSession(navigateSession(latest, nextQuestion.id), currentNow);
           autoAdvanceTimer.current = null;
         }, AUTO_ADVANCE_DELAY_MS);
@@ -952,21 +1074,26 @@ export function App({
   };
 
   const toggleCurrentFlag = () => {
-    const current = sessionRef.current;
+    if (!exam) return;
+    const current = sessionsRef.current[exam.id];
     if (!current || current.state !== "RUNNING" || expireIfNeeded()) return;
     const questionId = current.currentQuestionId;
     void commitSession(toggleFlagSession(current, questionId));
   };
 
   const pauseExam = () => {
-    const current = sessionRef.current;
+    if (!exam) return;
+    const current = sessionsRef.current[exam.id];
     if (!current || current.state !== "RUNNING") return;
     clearAutoAdvance();
     const currentNow = clock.now();
     const snapshot = pauseTimer(current.timer, current.state, currentNow);
     setNowMs(currentNow);
     if (snapshot.status === "EXPIRED") {
-      sessionRef.current = withTimerSnapshot(current, snapshot, currentNow);
+      sessionsRef.current = {
+        ...sessionsRef.current,
+        [exam.id]: withTimerSnapshot(current, snapshot, currentNow),
+      };
       void finalizeCurrentSession("expired");
       return;
     }
@@ -974,7 +1101,8 @@ export function App({
   };
 
   const resumeExam = () => {
-    const current = sessionRef.current;
+    if (!exam) return;
+    const current = sessionsRef.current[exam.id];
     if (!current || current.state !== "PAUSED") return;
     const currentNow = clock.now();
     const snapshot = resumeTimer(current.timer, current.state, currentNow);
@@ -982,30 +1110,96 @@ export function App({
     void commitSession(withTimerSnapshot(current, snapshot, currentNow), currentNow);
   };
 
+  const handleFileSelected = async (file: File) => {
+    setImportError(null);
+    setImportSuccess(null);
+    const result = await prepareExamPackImport(file, examPackRepository, [sampleExam]);
+    if (result.ok) setImportCandidate(result.candidate);
+    else setImportError(result.error);
+  };
+
+  const confirmImport = async () => {
+    if (!importCandidate) return;
+    const result = await examPackRepository.install(
+      importCandidate.examPack,
+      importCandidate.fingerprint,
+      clock.now(),
+    );
+    if (result.status === "installed") {
+      setEntries((current) => [
+        ...current,
+        { exam: result.record.examPack, installed: true },
+      ]);
+      setImportSuccess(result.record.examPack);
+      setImportCandidate(null);
+      return;
+    }
+    setImportCandidate(null);
+    setImportError({
+      code: result.status,
+      message: result.status === "duplicate"
+        ? "Bu sınav zaten yüklü."
+        : "Bu kimliğe sahip farklı bir sınav paketi zaten yüklü.",
+      details: result.status === "conflict"
+        ? ["Güvenlik nedeniyle mevcut sınav değiştirilmedi."]
+        : [],
+    });
+  };
+
+  const exportExam = (targetExam: ExamPack) => {
+    const blob = new Blob([serializeExamPack(targetExam)], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = safeExamPackFileName(targetExam);
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   if (hydrationState === "loading") return <LoadingScreen />;
 
-  const examRoute = path === `/exam/${sampleExam.id}`;
-  const reviewRoute = path === `/exam/${sampleExam.id}/review`;
-  if ((!examRoute && !reviewRoute) || !session) {
+  if (!routeInfo || !exam || !session) {
     return (
       <>
         <HomeScreen
-          exam={sampleExam}
-          session={session}
+          entries={entries}
+          sessions={sessions}
           onStart={startOrContinueExam}
-          onViewResult={() => routeTo(`/exam/${sampleExam.id}`)}
-          onRequestRetake={() => setRetakeOpen(true)}
-          interrupted={(examRoute || reviewRoute) && !session}
+          onViewResult={(targetExam) => routeTo(examUrl(targetExam.id))}
+          onRequestRetake={setRetakeExam}
+          onExport={exportExam}
+          onImportSuccessOpen={startOrContinueExam}
+          onDismissImportSuccess={() => setImportSuccess(null)}
+          onFileSelected={(file) => void handleFileSelected(file)}
+          fileInputRef={fileInputRef}
+          interrupted={Boolean(routeInfo) && (!exam || !session)}
           storageError={storageError}
+          importError={importError}
+          importSuccess={importSuccess}
         />
-        {retakeOpen && (
+        {retakeExam && (
           <ConfirmDialog
             title="Yeni bir sınav başlatılsın mı?"
             confirmLabel="Yeni Sınav"
-            onCancel={() => setRetakeOpen(false)}
+            onCancel={() => setRetakeExam(null)}
             onConfirm={startRetake}
           >
             <p>Önceki sonucun kaybolmayacak.</p>
+          </ConfirmDialog>
+        )}
+        {importCandidate && (
+          <ConfirmDialog
+            title={importCandidate.examPack.title}
+            confirmLabel="Sınavı Ekle"
+            onCancel={() => setImportCandidate(null)}
+            onConfirm={() => void confirmImport()}
+          >
+            <dl className="finish-summary">
+              <div><dt>Soru</dt><dd>{importCandidate.examPack.questionCount}</dd></div>
+              <div><dt>Süre</dt><dd>{importCandidate.examPack.durationMinutes} dakika</dd></div>
+              <div><dt>Dil</dt><dd>{importCandidate.examPack.language}</dd></div>
+              <div><dt>Tür</dt><dd>{importCandidate.examPack.kind === "official" ? "Resmî" : "Deneme"}</dd></div>
+            </dl>
           </ConfirmDialog>
         )}
       </>
@@ -1017,14 +1211,14 @@ export function App({
     ? <p className="storage-warning global-storage-warning" role="alert">{storageError}</p>
     : null;
   const terminal = ["COMPLETED", "EXPIRED"].includes(session.state) && session.result;
-  if (terminal && reviewRoute) {
+  if (terminal && routeInfo.review) {
     return (
       <>
         {storageWarning}
         <ReviewScreen
-          exam={sampleExam}
+          exam={exam}
           session={session}
-          onResults={() => routeTo(`/exam/${sampleExam.id}`)}
+          onResults={() => routeTo(examUrl(exam.id))}
         />
       </>
     );
@@ -1034,9 +1228,9 @@ export function App({
       <>
         {storageWarning}
         <ResultScreen
-          exam={sampleExam}
+          exam={exam}
           session={session}
-          onReview={() => routeTo(`/exam/${sampleExam.id}/review`)}
+          onReview={() => routeTo(`${examUrl(exam.id)}/review`)}
           onHome={() => routeTo("/")}
         />
       </>
@@ -1047,7 +1241,7 @@ export function App({
       <>
         {storageWarning}
         <PauseScreen
-          exam={sampleExam}
+          exam={exam}
           session={session}
           remainingMs={remainingMs}
           onResume={resumeExam}
@@ -1055,6 +1249,7 @@ export function App({
         />
         {finishOpen && (
           <FinishDialog
+            exam={exam}
             session={session}
             remainingMs={remainingMs}
             busy={completionSaving}
@@ -1070,7 +1265,7 @@ export function App({
     <>
       {storageWarning}
       <ExamPlayer
-        exam={sampleExam}
+        exam={exam}
         session={session}
         remainingMs={remainingMs}
         onAnswer={answerCurrentQuestion}
@@ -1081,6 +1276,7 @@ export function App({
       />
       {finishOpen && (
         <FinishDialog
+          exam={exam}
           session={session}
           remainingMs={remainingMs}
           busy={completionSaving}

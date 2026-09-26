@@ -6,7 +6,7 @@ import { validateExamPack } from "../src/exam-pack-validator.mjs";
 const inputPath = process.argv[2];
 
 if (!inputPath) {
-  console.error("Usage: npm run validate:exam -- <exam-pack.json>");
+  console.error("Usage: npm run validate:exam -- <exam-pack.json|exam-pack.ydspack>");
   process.exitCode = 2;
 } else {
   try {

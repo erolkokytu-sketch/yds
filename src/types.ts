@@ -93,3 +93,12 @@ export interface StoredExamSession extends ExamSession {
   storageVersion: 1;
   updatedAt: number;
 }
+
+export interface InstalledExamPack {
+  id: string;
+  schemaVersion: 1;
+  title: string;
+  installedAt: number;
+  fingerprint: string;
+  examPack: ExamPack;
+}

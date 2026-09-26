@@ -1,4 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
+import { resolve } from "node:path";
+
+const VALID_PACK_PATH = resolve("fixtures/packs/valid.ydspack");
 
 function monitorBrowserErrors(page: Page) {
   const errors: string[] = [];
@@ -161,5 +164,55 @@ test("reload restores progress and keeps a paused timer frozen", async ({ page }
   await page.reload();
   await expect(page.getByRole("heading", { name: "Sınav Duraklatıldı" })).toBeVisible();
   await expect(page.getByLabel("Duraklatılmış kalan süre")).toHaveText(frozen ?? "");
+  expectNoBrowserErrors();
+});
+
+test("imports a .ydspack and runs it through persistence, results, review, and export", async ({ page }) => {
+  const expectNoBrowserErrors = monitorBrowserErrors(page);
+  await page.goto("/");
+  await page.getByTestId("exam-pack-input").setInputFiles(VALID_PACK_PATH);
+  const preview = page.getByRole("dialog", { name: "Coastal English Practice" });
+  await expect(preview).toContainText("3");
+  await expect(preview).toContainText("30 dakika");
+  await preview.getByRole("button", { name: "Sınavı Ekle" }).click();
+  await expect(page.getByText("Sınav eklendi")).toBeVisible();
+  await expect(page.locator('[data-exam-id="coastal-english-practice"]')).toBeVisible();
+  await page.getByRole("button", { name: "Sınava Git" }).click();
+
+  await expect(page.getByText("Soru 1 / 3")).toBeVisible();
+  await page.getByTestId("answer-choice").first().click();
+  await expect(page.getByText("Soru 2 / 3")).toBeVisible();
+  await page.reload();
+  await expect(page.getByText("Soru 2 / 3")).toBeVisible();
+  await page.getByRole("button", { name: "Duraklat" }).click();
+  await page.getByRole("button", { name: "▶ Devam Et" }).click();
+  await page.getByRole("button", { name: "Sınavı Bitir" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Sınavı Bitir" }).click();
+  await expect(page.getByRole("heading", { name: "Sınav Tamamlandı" })).toBeVisible();
+  await expect(page.locator(".result-grid div", { hasText: "Doğru" })).toContainText("1");
+  await page.getByRole("button", { name: "Soruları İncele" }).click();
+  await expect(page.getByText("Doğru cevapladın")).toBeVisible();
+  await page.getByRole("button", { name: "Sonuçlara Dön" }).click();
+  await page.getByRole("button", { name: "Ana Sayfaya Dön" }).click();
+  await page.reload();
+  const installedCard = page.locator('[data-exam-id="coastal-english-practice"]');
+  await expect(installedCard).toContainText("Son sonuç");
+  const downloadPromise = page.waitForEvent("download");
+  await installedCard.getByRole("button", { name: "Sınav Paketini Dışa Aktar" }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe("coastal-english-practice.ydspack");
+  expectNoBrowserErrors();
+});
+
+test("rejects importing an identical pack twice", async ({ page }) => {
+  const expectNoBrowserErrors = monitorBrowserErrors(page);
+  await page.goto("/");
+  const input = page.getByTestId("exam-pack-input");
+  await input.setInputFiles(VALID_PACK_PATH);
+  await page.getByRole("dialog").getByRole("button", { name: "Sınavı Ekle" }).click();
+  await expect(page.getByText("Sınav eklendi")).toBeVisible();
+  await input.setInputFiles(VALID_PACK_PATH);
+  await expect(page.getByRole("alert")).toContainText("Bu sınav zaten yüklü.");
+  await expect(page.locator('[data-exam-id="coastal-english-practice"]')).toHaveCount(1);
   expectNoBrowserErrors();
 });

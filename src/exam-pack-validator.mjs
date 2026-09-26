@@ -1,13 +1,7 @@
-import { readFileSync } from "node:fs";
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
-
-const examPackSchema = JSON.parse(
-  readFileSync(new URL("../schemas/exam-pack.schema.json", import.meta.url), "utf8"),
-);
-const examSessionSchema = JSON.parse(
-  readFileSync(new URL("../schemas/exam-session.schema.json", import.meta.url), "utf8"),
-);
+import examPackSchema from "../schemas/exam-pack.schema.json" with { type: "json" };
+import examSessionSchema from "../schemas/exam-session.schema.json" with { type: "json" };
 
 const ajv = new Ajv2020({ allErrors: true, strict: true });
 addFormats(ajv);

@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "id": "coastal-english-practice",
+  "title": "Coastal English Practice",
+  "year": 2026,
+  "term": "Practice",
+  "language": "English",
+  "durationMinutes": 30,
+  "kind": "practice",
+  "source": {
+    "completeness": "full",
+    "verification": "verified",
+    "licenseNotes": "Original synthetic test content."
+  },
+  "scoring": {
+    "type": "scaled-correct-count",
+    "wrongAnswerPenalty": 0,
+    "maximumScore": 100,
+    "status": "verified"
+  },
+  "contentBlocks": [
+    {
+      "id": "coastal-passage",
+      "type": "passage",
+      "order": 1,
+      "content": "A fictional coastal workshop reuses rainwater and invites local students to observe its gardens."
+    }
+  ],
+  "questionGroups": [],
+  "questionCount": 3,
+  "questions": [
+    {
+      "id": "coastal-q-01",
+      "number": 1,
+      "type": "vocabulary",
+      "prompt": "The workshop ---- rainwater for its garden.",
+      "contentBlockIds": ["coastal-passage"],
+      "choices": {
+        "A": "reuses",
+        "B": "forgets",
+        "C": "paints",
+        "D": "folds",
+        "E": "borrows"
+      }
+    },
+    {
+      "id": "coastal-q-02",
+      "number": 2,
+      "type": "grammar",
+      "prompt": "Students visit the garden ---- they can observe the plants.",
+      "contentBlockIds": [],
+      "choices": {
+        "A": "unless",
+        "B": "so that",
+        "C": "although",
+        "D": "before",
+        "E": "despite"
+      }
+    },
+    {
+      "id": "coastal-q-03",
+      "number": 3,
+      "type": "other",
+      "prompt": "What does the workshop invite students to observe?",
+      "contentBlockIds": ["coastal-passage"],
+      "choices": {
+        "A": "Its trains",
+        "B": "Its gardens",
+        "C": "Its offices",
+        "D": "Its boats",
+        "E": "Its kitchens"
+      }
+    }
+  ],
+  "answerKey": {
+    "revision": "synthetic-v1",
+    "status": "verified",
+    "verifiedAt": "2026-09-26T00:00:00Z",
+    "answers": {
+      "coastal-q-01": "A",
+      "coastal-q-02": "B",
+      "coastal-q-03": "B"
+    }
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "id": "coastal-english-practice",
+  "title": "Conflicting Coastal Practice",
+  "year": 2026,
+  "term": "Practice",
+  "language": "English",
+  "durationMinutes": 30,
+  "kind": "practice",
+  "source": { "completeness": "full", "verification": "verified" },
+  "scoring": { "type": "correct-count", "wrongAnswerPenalty": 0, "maximumScore": 1, "status": "verified" },
+  "contentBlocks": [],
+  "questionGroups": [],
+  "questionCount": 1,
+  "questions": [
+    {
+      "id": "conflict-q-01",
+      "number": 1,
+      "type": "other",
+      "prompt": "This content intentionally conflicts with the installed pack.",
+      "contentBlockIds": [],
+      "choices": { "A": "One", "B": "Two", "C": "Three", "D": "Four", "E": "Five" }
+    }
+  ],
+  "answerKey": {
+    "revision": "conflict-v1",
+    "status": "verified",
+    "verifiedAt": "2026-09-26T00:00:00Z",
+    "answers": { "conflict-q-01": "A" }
+  }
+}

@@ -1,6 +1,6 @@
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
-import sessionSchema from "../schemas/exam-session.schema.json";
+import sessionSchema from "../schemas/exam-session.schema.json" with { type: "json" };
 import type { ExamSession } from "./types";
 
 const ajv = new Ajv2020({ allErrors: true, strict: true });
