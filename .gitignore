@@ -3,6 +3,10 @@ imports/*
 !imports/.gitkeep
 exam-packs/*
 !exam-packs/.gitkeep
+work/*
+!work/.gitkeep
+__pycache__/
+*.pyc
 
 .env
 .env.local

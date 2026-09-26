@@ -9,13 +9,17 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "import:pdf": "node tools/run-pdf-import.mjs",
+    "finalize:exam": "node scripts/finalize-exam.mjs",
+    "verify:pdf-player": "node scripts/verify-pdf-pack-player.mjs",
     "validate:exam": "node scripts/validate-exam.mjs",
-    "test": "npm run test:schema && npm run test:ui",
+    "test": "npm run test:schema && npm run test:pdf && npm run test:ui",
     "test:schema": "node --test test/exam-pack-validator.test.mjs",
+    "test:pdf": "node tools/run-python-tests.mjs",
     "test:ui": "vitest run",
     "test:e2e": "playwright test",
     "typecheck": "tsc -b --pretty false",
-    "lint": "node --check src/exam-pack-validator.mjs && node --check scripts/validate-exam.mjs && node --check test/exam-pack-validator.test.mjs"
+    "lint": "node --check src/exam-pack-validator.mjs && node --check scripts/validate-exam.mjs && node --check scripts/finalize-exam.mjs && node --check scripts/verify-pdf-pack-player.mjs && node --check tools/run-pdf-import.mjs && node --check tools/run-python-tests.mjs && node --check test/exam-pack-validator.test.mjs"
   },
   "dependencies": {
     "ajv": "^8.17.1",

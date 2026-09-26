@@ -1,6 +1,6 @@
 # YDS Player architecture
 
-Status: `PHASE_7_EXAM_PACK_BASELINE`
+Status: `PHASE_8_PDF_PREPARATION_BASELINE`
 
 ## Constraints and boundaries
 
@@ -199,9 +199,22 @@ Restore is atomic. ID collisions default to `skip` or explicit user-approved rep
 
 ## Mac-side PDF preparation tool
 
-The future Mac CLI operates only on user-selected local files. Its pipeline is PDF/text extraction → page/order reconstruction → candidate segmentation → draft pack → review report → validator. It records tool version, source file digest, extraction warnings, and provenance. Generated official content remains local and ignored by Git.
+The implemented Mac CLI operates only on user-selected local files. Python/pdfplumber performs
+layout-aware text extraction and preserves raw/normalized page artifacts. It classifies inputs
+as TEXT, MIXED, or SCANNED from deterministic per-page character coverage. SCANNED inputs stop
+at `OCR_REQUIRED`; this phase does not silently install OCR or call AI.
 
-This component is deferred; Phase 2 includes no PDF parser or download logic.
+The parser joins page-spanning questions and multiline options, removes repeated page margins,
+uses sequential question numbers, recognizes A-E option markers, links explicit shared-passage
+ranges, and maps a same-file or separate answer key. Every question retains source-page and
+rule-warning metadata in the preparation artifact. Missing questions, options, or answers are
+fatal to finalization and answers are never inferred.
+
+`prepared-exam.json` is the editable review boundary. A static escaped `review.html` highlights
+warnings/errors. The Node finalizer removes preparation metadata and reuses the canonical Phase
+2 JSON Schema and semantic validator before writing `.ydspack`. The Player receives an ordinary
+Exam Pack and has no PDF-specific branch. Source-derived work and final private packs remain
+ignored by Git.
 
 ## Optional local LLM adapter
 
