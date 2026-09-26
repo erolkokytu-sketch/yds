@@ -1,6 +1,6 @@
 # YDS Player architecture
 
-Status: `PHASE_8_PDF_PREPARATION_BASELINE`
+Status: `PHASE_9_RELEASE_CANDIDATE_PWA`
 
 ## Constraints and boundaries
 
@@ -222,9 +222,19 @@ An optional later adapter may suggest segmentation or repair for locally supplie
 
 ## PWA offline/cache architecture
 
-The future service worker precaches only the versioned application shell and local static assets. Hashed assets use cache-first; navigation uses an offline app-shell fallback; update activation is explicit and atomic. Exam Packs and sessions stay in IndexedDB and are included through backup, not Cache Storage.
+The production build generates a manifest and a versioned service worker. The worker precaches
+the built HTML, hashed JS/CSS, local icons, and manifest. Same-origin static assets use
+cache-first; navigation uses network-first with cached `index.html` fallback. Hash routing keeps
+GitHub Pages refreshes inside the static shell for both root and repository base paths.
 
-No cross-origin ÖSYM PDF is silently cached. A service-worker update must not delete user data. An incompatible database migration blocks activation with a recoverable backup prompt rather than clearing storage.
+An updated worker installs beside the active version and activates after clients close. During
+activation it removes only older `yds-shell-*` Cache Storage entries, then claims clients. It
+never opens, migrates, or deletes IndexedDB. Installed Exam Packs and sessions remain solely in
+IndexedDB, so application updates do not replace user content or active progress.
+
+No cross-origin PDF, API, font, analytics, or telemetry resource is requested. Offline local
+`.ydspack` import continues through File API + IndexedDB. Full backup/restore remains a
+post-release backlog item.
 
 ## Validation layers
 

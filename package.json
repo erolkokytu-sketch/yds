@@ -8,18 +8,21 @@
   },
   "scripts": {
     "dev": "vite",
+    "preview": "vite preview",
     "build": "tsc -b && vite build",
     "import:pdf": "node tools/run-pdf-import.mjs",
     "finalize:exam": "node scripts/finalize-exam.mjs",
     "verify:pdf-player": "node scripts/verify-pdf-pack-player.mjs",
     "validate:exam": "node scripts/validate-exam.mjs",
-    "test": "npm run test:schema && npm run test:pdf && npm run test:ui",
+    "test": "npm run test:schema && npm run test:pdf && npm run test:ui && npm run test:pwa",
     "test:schema": "node --test test/exam-pack-validator.test.mjs",
     "test:pdf": "node tools/run-python-tests.mjs",
     "test:ui": "vitest run",
     "test:e2e": "playwright test",
+    "test:e2e:production": "npm run build && PWA_E2E=1 playwright test --config=playwright.production.config.ts",
+    "test:pwa": "vite build --base=/YDS/ && node --test test/pwa.test.mjs",
     "typecheck": "tsc -b --pretty false",
-    "lint": "node --check src/exam-pack-validator.mjs && node --check scripts/validate-exam.mjs && node --check scripts/finalize-exam.mjs && node --check scripts/verify-pdf-pack-player.mjs && node --check tools/run-pdf-import.mjs && node --check tools/run-python-tests.mjs && node --check test/exam-pack-validator.test.mjs"
+    "lint": "node --check src/exam-pack-validator.mjs && node --check scripts/validate-exam.mjs && node --check scripts/finalize-exam.mjs && node --check scripts/verify-pdf-pack-player.mjs && node --check tools/run-pdf-import.mjs && node --check tools/run-python-tests.mjs && node --check test/exam-pack-validator.test.mjs && node --check test/pwa.test.mjs"
   },
   "dependencies": {
     "ajv": "^8.17.1",

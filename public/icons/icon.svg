@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="YDS Çalışma">
+  <rect width="512" height="512" rx="112" fill="#205c4a"/>
+  <path d="M92 137c58-18 113-7 164 31v224c-49-36-105-47-164-28V137Z" fill="#fffdfa"/>
+  <path d="M420 137c-58-18-113-7-164 31v224c49-36 105-47 164-28V137Z" fill="#f4f2ec"/>
+  <path d="M256 168v224" stroke="#cbd8d2" stroke-width="12"/>
+  <text x="256" y="274" fill="#205c4a" font-family="system-ui,sans-serif" font-size="72" font-weight="800" text-anchor="middle">YDS</text>
+  <path d="m330 315 27 27 58-66" fill="none" stroke="#a6632f" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

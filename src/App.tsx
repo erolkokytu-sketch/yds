@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
-import { AUTO_ADVANCE_AFTER_ANSWER, AUTO_ADVANCE_DELAY_MS } from "./config";
+import { APP_NAME, APP_VERSION, AUTO_ADVANCE_AFTER_ANSWER, AUTO_ADVANCE_DELAY_MS } from "./config";
 import { sampleExam } from "./exam";
 import {
   prepareExamPackImport,
@@ -43,8 +43,12 @@ function currentQuestionIndex(exam: ExamPack, session: ExamSession) {
 }
 
 function routeTo(path: string) {
-  window.history.pushState({}, "", path);
-  window.dispatchEvent(new PopStateEvent("popstate"));
+  window.history.pushState({}, "", `#${path}`);
+  window.dispatchEvent(new HashChangeEvent("hashchange"));
+}
+
+function currentRoutePath() {
+  return window.location.hash.startsWith("#/") ? window.location.hash.slice(1) : window.location.pathname;
 }
 
 function examUrl(examId: string) {
@@ -91,7 +95,7 @@ function HomeScreen({
     <main className="home" aria-labelledby="exam-list-title">
       <section className="hero">
         <p className="eyebrow">Kişisel sınav alanı</p>
-        <h1>YDS Çalışma</h1>
+        <h1>{APP_NAME}</h1>
         <p className="hero-copy">Dikkat dağıtmayan, sakin bir çözüm deneyimi.</p>
       </section>
 
@@ -181,7 +185,7 @@ function HomeScreen({
           ref={fileInputRef}
           className="visually-hidden"
           type="file"
-          accept=".ydspack,.json,application/json"
+          accept=".ydspack,.json,application/json,application/octet-stream"
           data-testid="exam-pack-input"
           onChange={(event) => {
             const file = event.currentTarget.files?.[0];
@@ -193,6 +197,10 @@ function HomeScreen({
           + Sınav Paketi Ekle
         </button>
       </section>
+      <footer className="app-footer">
+        <span>Sınavlar ve cevaplar cihazınızda saklanır.</span>
+        <span>{APP_NAME} v{APP_VERSION}</span>
+      </footer>
     </main>
   );
 }
@@ -777,8 +785,8 @@ type HydrationState = "loading" | "ready" | "error";
 function LoadingScreen() {
   return (
     <main className="loading-screen" aria-live="polite">
-      <p className="eyebrow">YDS Çalışma</p>
-      <h1>YDS Çalışma yükleniyor…</h1>
+      <p className="eyebrow">{APP_NAME}</p>
+      <h1>{APP_NAME} yükleniyor…</h1>
     </main>
   );
 }
@@ -792,7 +800,7 @@ export function App({
   repository?: SessionRepositoryContract;
   examPackRepository?: ExamPackRepositoryContract;
 }) {
-  const [path, setPath] = useState(window.location.pathname);
+  const [path, setPath] = useState(currentRoutePath);
   const [entries, setEntries] = useState<ExamLibraryEntry[]>([
     { exam: sampleExam, installed: false },
   ]);
@@ -872,9 +880,13 @@ export function App({
   }, [clearAutoAdvance, clock, exam, repository]);
 
   useEffect(() => {
-    const handleRouteChange = () => setPath(window.location.pathname);
+    const handleRouteChange = () => setPath(currentRoutePath());
     window.addEventListener("popstate", handleRouteChange);
-    return () => window.removeEventListener("popstate", handleRouteChange);
+    window.addEventListener("hashchange", handleRouteChange);
+    return () => {
+      window.removeEventListener("popstate", handleRouteChange);
+      window.removeEventListener("hashchange", handleRouteChange);
+    };
   }, []);
 
   useEffect(() => clearAutoAdvance, [clearAutoAdvance]);

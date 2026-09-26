@@ -19,7 +19,7 @@ function timerSeconds(value: string | null) {
 test("mobile user flow preserves answers, jumps, and flags", async ({ page }) => {
   const expectNoBrowserErrors = monitorBrowserErrors(page);
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Sample YDS Exam" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Örnek Sınav (Sentetik)" })).toBeVisible();
   await page.getByRole("button", { name: "Sınava Başla" }).click();
   await expect(page.getByText("Soru 1 / 12")).toBeVisible();
 

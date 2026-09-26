@@ -23,7 +23,7 @@ function openNavigator() {
 describe("Player MVP", () => {
   test("Home shows the sample exam metadata and Start button", async () => {
     await renderHome();
-    expect(screen.getByRole("heading", { name: "Sample YDS Exam" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Örnek Sınav (Sentetik)" })).toBeInTheDocument();
     expect(screen.getByText("12", { selector: "dd" })).toBeInTheDocument();
     expect(screen.getByText("180 dakika")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sınava Başla" })).toBeInTheDocument();
