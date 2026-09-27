@@ -14,10 +14,12 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 
 from pdf_importer import (  # noqa: E402
+    _split_inline_markers,
     ImportFailure,
     PageText,
     build_pack,
     inspect_and_extract,
+    is_answer_key_page,
     normalize_pages,
     parse_answer_key,
     parse_questions,
@@ -56,6 +58,48 @@ class PdfImporterTests(unittest.TestCase):
         inspection, _ = inspect_and_extract(path)
         self.assertEqual(inspection["pdfType"], "TEXT")
 
+    def test_fixture_a_single_column_layout(self) -> None:
+        path = self.base / "fixture-a.pdf"
+        make_pdf(path, [[f"Single column line {index} with enough text" for index in range(12)]])
+        inspection, _ = inspect_and_extract(path)
+        self.assertEqual(inspection["pageLayouts"]["1"], "SINGLE_COLUMN")
+
+    def test_fixture_b_clean_two_column_layout_and_reading_order(self) -> None:
+        path = self.base / "fixture-b.pdf"
+        pdf = canvas.Canvas(str(path))
+        for index in range(1, 8):
+            pdf.drawString(54, 790 - index * 28, f"{index}. Left question content {index}")
+            pdf.drawString(330, 780 - index * 28, f"{index + 7}. Right question content {index}")
+        pdf.save()
+        inspection, pages = inspect_and_extract(path)
+        self.assertEqual(inspection["pageLayouts"]["1"], "MULTI_COLUMN")
+        self.assertLess(pages[0].raw.index("1. Left"), pages[0].raw.index("8. Right"))
+
+    def test_fixture_c_side_by_side_options_are_split(self) -> None:
+        value = _split_inline_markers("A) alpha B) beta C) gamma D) delta E) epsilon")
+        self.assertEqual(len(value.splitlines()), 5)
+
+    def test_fixture_d_full_width_blocks_produce_mixed_layout(self) -> None:
+        path = self.base / "fixture-d.pdf"
+        pdf = canvas.Canvas(str(path))
+        pdf.setFont("Helvetica", 14)
+        pdf.drawCentredString(297, 800, "FULL WIDTH EXAM HEADING ACROSS BOTH COLUMNS")
+        pdf.drawCentredString(297, 775, "FULL WIDTH DIRECTIONS ACROSS BOTH COLUMNS")
+        pdf.setFont("Helvetica", 10)
+        for index in range(1, 8):
+            pdf.drawString(54, 740 - index * 28, f"{index}. Left item text")
+            pdf.drawString(330, 730 - index * 28, f"{index + 7}. Right item text")
+        pdf.save()
+        inspection, _ = inspect_and_extract(path)
+        self.assertEqual(inspection["pageLayouts"]["1"], "MIXED_LAYOUT")
+
+    def test_fixture_e_layout_debug_is_deterministic(self) -> None:
+        path = self.base / "fixture-e.pdf"
+        make_pdf(path, [["Deterministic layout evidence " * 8]])
+        first, _ = inspect_and_extract(path)
+        second, _ = inspect_and_extract(path)
+        self.assertEqual(first["pageLayouts"], second["pageLayouts"])
+
     def test_question_numbers_are_ordered(self) -> None:
         pages = [PageText(1, "", "1. First synthetic question prompt\n" + "\n".join(five_options()) + "\n2. Second synthetic question prompt\n" + "\n".join(five_options("Answer")))]
         questions, _, _, warnings = parse_questions(pages)
@@ -79,12 +123,36 @@ class PdfImporterTests(unittest.TestCase):
         self.assertEqual(questions[0].source_pages, [1, 2])
         self.assertIn("page-boundary-split", questions[0].warnings)
 
+    def test_fixture_f_page_spanning_question(self) -> None:
+        self.test_question_crossing_page_boundary()
+
     def test_shared_passage_is_linked(self) -> None:
         lines = ["Questions 1-2 are based on the following passage.", "A shared synthetic passage with sufficient content.", "1. First prompt"] + five_options() + ["2. Second prompt"] + five_options("Other")
         questions, blocks, groups, _ = parse_questions([PageText(1, "", "\n".join(lines))])
         self.assertEqual(len(blocks), 1)
         self.assertEqual(len(groups), 1)
         self.assertEqual(questions[0].content_block_ids, questions[1].content_block_ids)
+
+    def test_fixture_g_turkish_passage_heading_is_linked(self) -> None:
+        text = "1. - 2. sorularda, aşağıdaki parçaya göre cevaplayınız.\nShared passage text is sufficiently long.\n1. First prompt\n" + "\n".join(five_options()) + "\n2. Second prompt\n" + "\n".join(five_options("Other"))
+        questions, blocks, groups, _ = parse_questions([PageText(1, "", text)])
+        self.assertEqual((len(questions), len(blocks), len(groups)), (2, 1, 1))
+
+    def test_fixture_h_dense_answer_table_without_heading(self) -> None:
+        text = " ".join(f"{index}. {'ABCDE'[(index - 1) % 5]}" for index in range(1, 21))
+        page = PageText(1, text, text)
+        self.assertTrue(is_answer_key_page(page))
+        answers, _ = parse_answer_key([page], require_heading=True)
+        self.assertEqual(len(answers), 20)
+
+    def test_fixture_i_numbered_instructions_do_not_replace_exam_sequence(self) -> None:
+        instruction = "1. First instruction with sufficient text\n2. Second instruction with sufficient text"
+        exam = []
+        for number in range(1, 4):
+            exam.extend([f"{number}. Real question prompt number {number}", *five_options(str(number))])
+        questions, *_ = parse_questions([PageText(1, "", instruction + "\n" + "\n".join(exam))])
+        self.assertEqual([question.number for question in questions], [1, 2, 3])
+        self.assertTrue(questions[0].prompt.startswith("Real question"))
 
     def test_repeated_header_footer_removed(self) -> None:
         pages = [PageText(1, "HEADER\nbody one\nFOOTER"), PageText(2, "HEADER\nbody two\nFOOTER")]
@@ -137,6 +205,12 @@ class PdfImporterTests(unittest.TestCase):
         question.choices["E"] += " SAĞLIK Reading Comprehension Date: ______________"
         errors, _ = validate_draft(1, [question], {1: "B"}, [])
         self.assertIn("question-1:E-contamination:worksheet-metadata", errors)
+
+    def test_column_crossover_contamination_fails_validation(self) -> None:
+        question = parse_questions([PageText(1, "", "1. Long enough prompt\n" + "\n".join(five_options()))])[0][0]
+        question.choices["E"] += " 53. Foreign question text entered this option"
+        errors, _ = validate_draft(1, [question], {1: "B"}, [])
+        self.assertIn("question-1:E-contamination:column-crossover", errors)
 
     def test_overly_long_option_creates_warning(self) -> None:
         text = "1. Long enough prompt\n" + "\n".join(five_options())
@@ -224,6 +298,20 @@ class PdfImporterTests(unittest.TestCase):
         prepared.write_text(json.dumps({"examPack": fixture, "_preparation": {"expectedQuestions": 80, "warnings": [], "reviewApproved": True}}))
         result = subprocess.run(["node", "scripts/finalize-exam.mjs", str(prepared), "--output", str(self.base)], cwd=ROOT, capture_output=True, text=True, check=False)
         self.assertNotEqual(result.returncode, 0)
+
+    def test_finalize_cannot_override_critical_extraction_error(self) -> None:
+        fixture = json.loads((ROOT / "fixtures/sample-exam.json").read_text())
+        prepared = self.base / "prepared.json"
+        prepared.write_text(json.dumps({
+            "examPack": fixture,
+            "_preparation": {"errors": ["critical-layout-error"], "warnings": [], "reviewApproved": True},
+        }))
+        result = subprocess.run(
+            ["node", "scripts/finalize-exam.mjs", str(prepared), "--output", str(self.base), "--reviewed"],
+            cwd=ROOT, capture_output=True, text=True, check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("critical extraction errors remain", result.stderr)
 
 
 if __name__ == "__main__":

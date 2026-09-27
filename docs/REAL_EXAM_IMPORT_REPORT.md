@@ -90,7 +90,7 @@ All 57 PDFs were classified as `TEXT`; none required OCR. `PACKED` means zero er
 
 | Exam | Expected | Questions | Complete A–E | Answers | Status | Detail | Review |
 |---|---:|---:|---:|---:|---|---|---|
-| 2013-YDS İlkbahar | 80 | 135 | 53 | 0 | REVIEW_REQUIRED | Full PDF layout produced duplicate/false question boundaries; answer heading was not isolated. | `/Users/erolkok/AI/Codex/YDS/work/2013-yds-i-lkbahar-en-784d7c375045/review.html` |
+| 2013-YDS İlkbahar | 80 | 80 | 80 | 80 | PACKED | Multi-column representative; schema/semantic validation and human sample review passed. | `/Users/erolkok/AI/Codex/YDS/work/multicolumn-representative/2013-yds-ilkbahar-ingilizce-784d7c375045/review.html` |
 | 2013-YDS Sonbahar | 80 | 109 | 6 | 0 | REVIEW_REQUIRED | Full PDF layout produced duplicate/false question boundaries; answer heading was not isolated. | `/Users/erolkok/AI/Codex/YDS/work/2013-yds-sonbahar-en-e432e7739053/review.html` |
 | 2014-YDS İlkbahar | 80 | 105 | 6 | 0 | REVIEW_REQUIRED | Official public 10% release is incomplete; parser output also fails 80-question/choice/answer invariants. | `/Users/erolkok/AI/Codex/YDS/work/2014-yds-i-lkbahar-en-f31fde7ede3a/review.html` |
 | 2014-YDS Sonbahar | 80 | 100 | 5 | 0 | REVIEW_REQUIRED | Official public 10% release is incomplete; parser output also fails 80-question/choice/answer invariants. | `/Users/erolkok/AI/Codex/YDS/work/2014-yds-sonbahar-en-11b222a154c4/review.html` |
@@ -143,6 +143,7 @@ All 57 PDFs were classified as `TEXT`; none required OCR. `PACKED` means zero er
 
 ## Packed exams
 
+- `private-exam-packs/2013-yds-ilkbahar-ingilizce.ydspack` — VALID
 - `private-exam-packs/sorulab-reading-comprehension.ydspack` — VALID
 - `private-exam-packs/sorulab-paragraf-tamamlama-genel.ydspack` — VALID
 - `private-exam-packs/sorulab-paragraf-tamamlama-ekonomi.ydspack` — VALID
@@ -150,8 +151,9 @@ All 57 PDFs were classified as `TEXT`; none required OCR. `PACKED` means zero er
 
 ## Key findings
 
-- The two full official 2013 papers are text PDFs, but the existing Phase 8 parser confuses section/range numbers with question starts and does not isolate their embedded answer heading. They remain fail-closed.
+- 2013 İlkbahar tam kitapçığı çok sütunlu temsilci olarak geçti. Koordinat tabanlı gutter,
+  ardışık soru gövdesi seçimi, yatay A–E ayrımı ve yoğun cevap tablosu algılama birlikte
+  80/80 soru, seçenek ve cevap üretti.
 - Official 2014–2026 archive documents match the verified `docs/EXAM_SOURCES.md` inventory, but are public 10% releases and cannot satisfy an 80-question pack.
 - The 2006–2009 question/key pairs are content-matched by year and title, but their two-column extraction creates false/duplicate question boundaries.
 - Full practice papers from Akın Dil and Ankara Dil have reliable keys, but their extracted choices/question boundaries are incomplete; no answers or text were guessed.
-

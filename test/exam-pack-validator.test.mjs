@@ -35,6 +35,14 @@ test("worksheet footer contamination fails semantic validation", () => {
   assert.equal(hasError(result, "content_contamination"), true);
 });
 
+test("column crossover contamination fails semantic validation", () => {
+  const exam = copySample();
+  exam.questions[0].choices.E += " 53. Foreign question text entered this option";
+  const result = validateExamPack(exam);
+  assert.equal(result.valid, false);
+  assert.equal(hasError(result, "content_contamination"), true);
+});
+
 test("ordinary answer and date words remain valid", () => {
   const exam = copySample();
   exam.questions[0].prompt = "Which answer best describes the date discussed in the passage?";

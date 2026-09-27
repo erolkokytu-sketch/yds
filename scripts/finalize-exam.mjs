@@ -35,6 +35,9 @@ try {
   const prepared = JSON.parse(await readFile(input, "utf8"));
   const pack = structuredClone(prepared.examPack);
   if (!pack || !prepared._preparation) throw new Error("not a prepared-exam document");
+  if (prepared._preparation.errors?.length) {
+    throw new Error(`critical extraction errors remain: ${prepared._preparation.errors.join(", ")}`);
+  }
   const expectedQuestions = prepared._preparation.expectedQuestions;
   if (Number.isInteger(expectedQuestions) && pack.questions?.length !== expectedQuestions) {
     throw new Error(`question count incomplete: ${pack.questions?.length ?? 0}/${expectedQuestions}`);

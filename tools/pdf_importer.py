@@ -14,13 +14,27 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
 
-TOOL_VERSION = "1.1.0"
+TOOL_VERSION = "1.2.0"
 MAX_PDF_BYTES = 100 * 1024 * 1024
 OPTION_KEYS = ("A", "B", "C", "D", "E")
 QUESTION_RE = re.compile(r"^\s*(\d{1,3})\s*(?:[.)]|-\s)\s*(.*)$")
 OPTION_RE = re.compile(r"^\s*(?:\(([A-E])\)|([A-E])[.)])\s*(.*)$", re.I)
 GROUP_RE = re.compile(
-    r"(?:for\s+)?questions?\s+(\d{1,3})\s*[\-–]\s*(\d{1,3}).*?(?:passage|following|based)",
+    r"(?:(?:for\s+)?questions?\s+|)(\d{1,3})\s*[. ]*[-–]\s*(\d{1,3})"
+    r".*?(?:passage|following|based|a[şs]a[ğg][ıi]daki\s+par|par[çc]aya\s+g[öo]re)",
+    re.I,
+)
+POST_EXAM_HEADER_RE = re.compile(
+    r"(?:s[ıi]navda\s+uyula(?:cak)?|uyulacak\s+kurallar|test\s+bitti|end\s+of\s+(?:the\s+)?test)",
+    re.I,
+)
+SECTION_RANGE_RE = re.compile(
+    r"^\s*(?:(?:for\s+)?questions?\s+)?\d{1,3}\s*[. ]*[-–]\s*\d{1,3}\b",
+    re.I,
+)
+GROUP_INSTRUCTION_RE = re.compile(
+    r"^\s*(?:(?:sorular[ıi]\s+)?(?:a[şs]a[ğg][ıi]daki\s+)?(?:par[çc]aya\s+g[öo]re\s+)?)?"
+    r"(?:cevaplay[ıi]n[ıi]z|uygun\s+(?:se[çc]ene[ğg]i|ifade(?:yi)?)\s+bulunuz)\.?\s*$",
     re.I,
 )
 ANSWER_HEADING_RE = re.compile(
@@ -49,6 +63,11 @@ BRANDED_FOOTER_RE = re.compile(
     r"\b[\w.-]+\.(?:app|com|org|net)\b.*(?:ücretsiz|free\s+sample|örnek\s+k[âa][ğg][ıi]t)",
     re.I,
 )
+CROSS_COLUMN_MARKER_RE = re.compile(
+    r"(?:^|\s)\d{1,3}[.)]\s+(?=[A-ZÇĞİÖŞÜ])|"
+    r"(?:^|\s)\d{1,3}\s*[. ]*[-–]\s*\d{1,3}\b.*(?:questions?|sorular)",
+    re.I,
+)
 
 
 class ImportFailure(RuntimeError):
@@ -61,6 +80,8 @@ class PageText:
     raw: str
     normalized: str = ""
     chars: int = 0
+    layout: str = "SINGLE_COLUMN"
+    layout_debug: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -102,21 +123,128 @@ def _load_pdfplumber():
     return pdfplumber
 
 
-def _extract_page_text(page: Any) -> str:
-    """Use coordinates to read a likely two-column page column-by-column."""
+def _split_inline_markers(value: str) -> str:
+    """Put side-by-side A-E choices on independent structural lines."""
+    return re.sub(r"(?<!\w)(?=(?:\([A-E]\)|[A-E][.)])\s*)", "\n", value).strip()
+
+
+def _analyze_page_layout(page: Any) -> dict[str, Any]:
+    """Classify a page from word coordinates and choose a deterministic gutter."""
     words = page.extract_words(use_text_flow=False, keep_blank_chars=False) or []
     lines: dict[int, list[dict[str, Any]]] = {}
     for word in words:
         lines.setdefault(round(float(word["top"]) / 3), []).append(word)
-    starts = [min(float(word["x0"]) for word in line) for line in lines.values() if line]
-    left_starts = sum(start < page.width * 0.2 for start in starts)
-    right_starts = sum(start > page.width * 0.5 for start in starts)
-    if left_starts >= 5 and right_starts >= 5:
-        midpoint = page.width / 2
-        left = page.crop((0, 0, midpoint, page.height)).extract_text(layout=True, x_tolerance=2, y_tolerance=3) or ""
-        right = page.crop((midpoint, 0, page.width, page.height)).extract_text(layout=True, x_tolerance=2, y_tolerance=3) or ""
-        return f"{left}\n{right}"
-    return page.extract_text(layout=True, x_tolerance=2, y_tolerance=3) or ""
+    candidates: list[tuple[float, int, float]] = []
+    for x in range(round(page.width * 0.4), round(page.width * 0.6) + 1):
+        crossing = sum(float(word["x0"]) < x < float(word["x1"]) for word in words)
+        left = sum(float(word["x1"]) <= x for word in words)
+        right = sum(float(word["x0"]) >= x for word in words)
+        balance = abs(left - right) / max(1, len(words))
+        candidates.append((crossing * 10 + balance, crossing, float(x)))
+    minimum_crossings = min((item[1] for item in candidates), default=0)
+    eligible = [item for item in candidates if item[1] <= minimum_crossings + 2]
+    _, crossings, gutter = min(
+        eligible, key=lambda item: (abs(item[2] - page.width / 2), item[0]),
+        default=(0.0, 0, page.width / 2),
+    )
+    dual_rows = 0
+    spanning_rows = 0
+    for row in lines.values():
+        has_left = any(float(word["x1"]) < gutter - 3 for word in row)
+        has_right = any(float(word["x0"]) > gutter + 3 for word in row)
+        crosses = any(float(word["x0"]) <= gutter <= float(word["x1"]) for word in row)
+        if has_left and has_right and not crosses:
+            dual_rows += 1
+        if crosses or (has_left and has_right and min(float(w["x0"]) for w in row) < page.width * .25
+                       and max(float(w["x1"]) for w in row) > page.width * .75):
+            spanning_rows += 1
+    enough_sides = (
+        sum(float(word["x1"]) <= gutter for word in words) >= 20
+        and sum(float(word["x0"]) >= gutter for word in words) >= 20
+    )
+    structural = [word for word in words if re.fullmatch(r"(?:\d{1,3}[.)]?|[A-E][.)])", str(word["text"]))]
+    structural_left = sum(float(word["x0"]) < gutter for word in structural)
+    structural_right = sum(float(word["x0"]) > gutter for word in structural)
+    is_multi = enough_sides and (dual_rows >= 4 or (structural_left >= 3 and structural_right >= 3))
+    layout = "MIXED_LAYOUT" if is_multi and spanning_rows >= 2 else "MULTI_COLUMN" if is_multi else "SINGLE_COLUMN"
+    result: dict[str, Any] = {
+        "classification": layout,
+        "gutter": round(gutter, 2) if is_multi else None,
+        "dualRows": dual_rows,
+        "spanningRows": spanning_rows,
+        "wordCount": len(words),
+        "gutterCrossings": crossings,
+        "structuralMarkers": {"left": structural_left, "right": structural_right},
+    }
+    if is_multi:
+        left_blocks: list[dict[str, Any]] = []
+        right_blocks: list[dict[str, Any]] = []
+        for row_index, (_, row) in enumerate(sorted(lines.items()), 1):
+            for side, target in (("left", left_blocks), ("right", right_blocks)):
+                selected = [
+                    word for word in row
+                    if (((float(word["x0"]) + float(word["x1"])) / 2 < gutter) == (side == "left"))
+                ]
+                if selected:
+                    selected.sort(key=lambda word: float(word["x0"]))
+                    target.append({
+                        "id": f"{side[0].upper()}{row_index}",
+                        "x0": round(min(float(word["x0"]) for word in selected), 2),
+                        "x1": round(max(float(word["x1"]) for word in selected), 2),
+                        "top": round(min(float(word["top"]) for word in selected), 2),
+                        "bottom": round(max(float(word["bottom"]) for word in selected), 2),
+                        "text": " ".join(str(word["text"]) for word in selected),
+                    })
+        result["usableContentWidth"] = {
+            "x0": round(min((float(word["x0"]) for word in words), default=0), 2),
+            "x1": round(max((float(word["x1"]) for word in words), default=page.width), 2),
+        }
+        result["leftBlocks"] = left_blocks
+        result["rightBlocks"] = right_blocks
+        result["readingOrder"] = [block["id"] for block in left_blocks + right_blocks]
+    return result
+
+
+def _extract_page_text(page: Any) -> tuple[str, dict[str, Any]]:
+    """Read columns top-to-bottom, left first, while retaining layout evidence."""
+    debug = _analyze_page_layout(page)
+    if debug["classification"] in {"MULTI_COLUMN", "MIXED_LAYOUT"}:
+        gutter = float(debug["gutter"])
+        words = page.extract_words(use_text_flow=False, keep_blank_chars=False) or []
+        crossing_headers: list[str] = []
+        for word in words:
+            value = str(word["text"])
+            letters = [char for char in value if char.isalpha()]
+            if (
+                float(word["x0"]) < gutter < float(word["x1"])
+                and len(letters) >= 4
+                and sum(char.isupper() for char in letters) / len(letters) >= 0.7
+            ):
+                crossing_headers.append(value)
+
+        def remove_split_headers(value: str) -> str:
+            result: list[str] = []
+            for line in value.splitlines():
+                tokens = line.split()
+                kept: list[str] = []
+                for token in tokens:
+                    compact = re.sub(r"\W", "", token, flags=re.UNICODE)
+                    if any(
+                        len(compact) >= 2 and (header.startswith(compact) or header.endswith(compact))
+                        for header in crossing_headers
+                    ):
+                        continue
+                    kept.append(token)
+                if kept:
+                    result.append(" ".join(kept))
+            return "\n".join(result)
+
+        left = page.crop((0, 0, gutter, page.height)).extract_text(layout=False, x_tolerance=2, y_tolerance=3) or ""
+        right = page.crop((gutter, 0, page.width, page.height)).extract_text(layout=False, x_tolerance=2, y_tolerance=3) or ""
+        full_width = "\n".join(dict.fromkeys(crossing_headers))
+        return _split_inline_markers("\n".join(filter(None, (full_width, remove_split_headers(left), remove_split_headers(right))))), debug
+    text = page.extract_text(layout=False, x_tolerance=2, y_tolerance=3) or ""
+    return _split_inline_markers(text), debug
 
 
 def inspect_and_extract(path: Path) -> tuple[dict[str, Any], list[PageText]]:
@@ -136,8 +264,11 @@ def inspect_and_extract(path: Path) -> tuple[dict[str, Any], list[PageText]]:
             if not pdf.pages:
                 raise ImportFailure("PDF has no pages")
             for index, page in enumerate(pdf.pages, 1):
-                text = _extract_page_text(page)
-                pages.append(PageText(index, text.replace("\x00", ""), chars=len(text.strip())))
+                text, layout_debug = _extract_page_text(page)
+                pages.append(PageText(
+                    index, text.replace("\x00", ""), chars=len(text.strip()),
+                    layout=layout_debug["classification"], layout_debug=layout_debug,
+                ))
     except ImportFailure:
         raise
     except Exception as error:
@@ -160,6 +291,7 @@ def inspect_and_extract(path: Path) -> tuple[dict[str, Any], list[PageText]]:
         "likelyScanned": pdf_type == "SCANNED",
         "extractionQuality": "good" if pdf_type == "TEXT" else "partial" if pdf_type == "MIXED" else "insufficient",
         "pageCharacters": {str(page.number): page.chars for page in pages},
+        "pageLayouts": {str(page.number): page.layout for page in pages},
     }
     return inspection, pages
 
@@ -172,7 +304,7 @@ def detect_repeated_margins(pages: list[PageText]) -> set[str]:
     counts: dict[str, int] = {}
     for page in pages:
         lines = [line for line in page.raw.splitlines() if line.strip()]
-        for line in set(lines[:2] + lines[-2:]):
+        for line in set(lines):
             key = _line_key(line)
             if len(key) >= 3:
                 counts[key] = counts.get(key, 0) + 1
@@ -188,6 +320,8 @@ def normalize_pages(pages: list[PageText]) -> tuple[list[PageText], list[dict[st
         for line in page.raw.replace("\r\n", "\n").replace("\r", "\n").splitlines():
             compact = re.sub(r"[ \t]+", " ", line).strip()
             if _line_key(compact) in repeated:
+                removed.append({"page": page.number, "text": compact})
+            elif re.fullmatch(r"\d{1,3}", compact) or re.fullmatch(r"di[ğg]er\s+sayfaya\s+ge[çc]iniz\.?", compact, re.I):
                 removed.append({"page": page.number, "text": compact})
             elif compact:
                 kept.append(compact)
@@ -216,6 +350,8 @@ def contamination_markers(value: str) -> list[str]:
         markers.append("worksheet-metadata")
     if BRANDED_FOOTER_RE.search(value):
         markers.append("branded-footer")
+    if CROSS_COLUMN_MARKER_RE.search(value):
+        markers.append("column-crossover")
     return markers
 
 
@@ -230,13 +366,38 @@ def is_worksheet_metadata_line(value: str) -> bool:
 
 def _looks_like_question_start(value: str) -> bool:
     match = QUESTION_RE.match(value)
-    return bool(match and len(match.group(2).strip()) >= 8 and not has_answer_sequence(value))
+    if not match:
+        return False
+    remainder = match.group(2).strip()
+    return bool(
+        len(remainder) >= 8
+        and not re.match(r"^[-–]\s*\d", remainder)
+        and not has_answer_sequence(value)
+    )
+
+
+def _answer_pairs_on_page(page: PageText) -> dict[int, str]:
+    return {int(number): answer.upper() for number, answer in ANSWER_PAIR_RE.findall(page.normalized)}
+
+
+def is_answer_key_page(page: PageText) -> bool:
+    pairs = _answer_pairs_on_page(page)
+    heading = ANSWER_HEADING_RE.search(page.normalized)
+    if heading and heading.start() < 100 and len(pairs) >= 3:
+        return True
+    if len(pairs) < 20:
+        return False
+    ordered = sorted(pairs)
+    density = len(ordered) / max(1, ordered[-1] - ordered[0] + 1)
+    return ordered[0] <= 2 and density >= 0.8
 
 
 def page_lines(pages: list[PageText], stop_at_answer_key: bool = True) -> list[tuple[str, int]]:
     result: list[tuple[str, int]] = []
     suppress_answer_block = False
     for page in pages:
+        if stop_at_answer_key and is_answer_key_page(page):
+            continue
         for line in page.normalized.splitlines():
             heading = ANSWER_HEADING_RE.search(line) if stop_at_answer_key else None
             if heading:
@@ -274,6 +435,9 @@ def find_passages(
         start, end = int(match.group(1)), int(match.group(2))
         passage_lines: list[str] = []
         cursor = index + 1
+        while cursor < len(lines) and GROUP_INSTRUCTION_RE.match(lines[cursor][0]):
+            consumed.add(cursor)
+            cursor += 1
         while cursor < len(lines):
             q_match = QUESTION_RE.match(lines[cursor][0])
             if q_match and int(q_match.group(1)) == start:
@@ -303,8 +467,28 @@ def parse_questions(pages: list[PageText]) -> tuple[list[ParsedQuestion], list[d
         if index in consumed:
             continue
         match = QUESTION_RE.match(line)
-        if match:
+        next_has_option = False
+        for cursor in range(index + 1, min(index + 80, len(lines))):
+            if OPTION_RE.match(lines[cursor][0]):
+                next_has_option = True
+                break
+            if QUESTION_RE.match(lines[cursor][0]):
+                break
+        remainder = match.group(2).strip() if match else ""
+        is_range_heading = bool(re.match(r"^[-–]\s*\d", remainder))
+        if match and not is_range_heading and (_looks_like_question_start(line) or next_has_option):
             starts.append((index, int(match.group(1))))
+
+    # Covers and instructions also contain numbered prose. The exam body is the
+    # longest strict 1..N sequence; section range headings were filtered above.
+    runs: list[list[tuple[int, int]]] = []
+    for start in starts:
+        if not runs or start[1] != runs[-1][-1][1] + 1:
+            runs.append([start])
+        else:
+            runs[-1].append(start)
+    best_run = max(runs, key=lambda run: (len(run), run[0][1] == 1), default=[])
+    starts = best_run if len(best_run) >= 2 else starts
 
     questions: list[ParsedQuestion] = []
     global_warnings: list[str] = []
@@ -313,8 +497,20 @@ def parse_questions(pages: list[PageText]) -> tuple[list[ParsedQuestion], list[d
         if number in seen:
             global_warnings.append(f"duplicate-question-number:{number}")
         seen.add(number)
-        end_index = starts[position + 1][0] if position + 1 < len(starts) else len(lines)
+        if position + 1 < len(starts):
+            end_index = starts[position + 1][0]
+        else:
+            end_index = next(
+                (index for index in range(start_index + 1, len(lines)) if POST_EXAM_HEADER_RE.search(lines[index][0])),
+                len(lines),
+            )
         segment = [(text, page) for idx, (text, page) in enumerate(lines[start_index:end_index], start_index) if idx not in consumed]
+        range_boundary = next(
+            (index for index, (text, _) in enumerate(segment[1:], 1) if SECTION_RANGE_RE.match(text)),
+            None,
+        )
+        if range_boundary is not None:
+            segment = segment[:range_boundary]
         if not segment:
             continue
         first_match = QUESTION_RE.match(segment[0][0])
@@ -335,10 +531,11 @@ def parse_questions(pages: list[PageText]) -> tuple[list[ParsedQuestion], list[d
                 prompt_parts.append(text)
         choices = {key: _join(choice_parts.get(key, [])) for key in OPTION_KEYS}
         warnings: list[str] = []
+        roman_options = all(re.fullmatch(r"(?:I|II|III|IV|V)", value or "") for value in choices.values())
         for key, value in choices.items():
             if not value:
                 warnings.append(f"option-{key}-missing")
-            elif len(value) < 2:
+            elif len(value) < 2 and not roman_options:
                 warnings.append(f"option-{key}-short")
         non_empty = [value for value in choices.values() if value]
         if len(set(non_empty)) != len(non_empty):
@@ -349,12 +546,12 @@ def parse_questions(pages: list[PageText]) -> tuple[list[ParsedQuestion], list[d
             for key, value in choices.items():
                 if value and len(value) > max(80, median_length * 3):
                     warnings.append(f"option-{key}-length-outlier")
-        prompt = _join(prompt_parts)
+        block_id, group_id = links.get(number, (None, None))
+        prompt = _join(prompt_parts) or (f"Blank {number}" if block_id else "")
         if len(prompt) < 8:
             warnings.append("question-text-short")
         if len(source_pages) > 1:
             warnings.append("page-boundary-split")
-        block_id, group_id = links.get(number, (None, None))
         questions.append(ParsedQuestion(
             number=number,
             prompt=prompt,
@@ -376,9 +573,13 @@ def parse_answer_key(pages: list[PageText], require_heading: bool = False) -> tu
     text = "\n".join(page.normalized for page in pages)
     if require_heading:
         heading = re.search(r"(?:answer\s*key|cevap\s*anahtar[ıi])", text, re.I)
-        if not heading:
-            return {}, []
-        text = text[heading.end():]
+        if heading:
+            text = text[heading.end():]
+        else:
+            key_pages = [page for page in pages if is_answer_key_page(page)]
+            if not key_pages:
+                return {}, []
+            text = "\n".join(page.normalized for page in key_pages)
     pairs = ANSWER_PAIR_RE.findall(text)
     answers: dict[int, str] = {}
     warnings: list[str] = []
@@ -516,6 +717,51 @@ body{{font:16px system-ui;max-width:960px;margin:2rem auto;padding:0 1rem;backgr
     path.write_text(document, encoding="utf-8")
 
 
+def build_review_sample(
+    questions: list[ParsedQuestion], answers: dict[int, str], blocks: list[dict[str, Any]],
+) -> dict[str, Any]:
+    by_page: dict[int, list[ParsedQuestion]] = {}
+    for question in questions:
+        for page in question.source_pages:
+            by_page.setdefault(page, []).append(question)
+    column_boundary: list[ParsedQuestion] = []
+    for page_questions in by_page.values():
+        unique = list({question.number: question for question in page_questions}.values())
+        if len(unique) >= 4:
+            middle = len(unique) // 2
+            column_boundary.extend(unique[max(0, middle - 1):middle + 2])
+            if len(column_boundary) >= 3:
+                break
+    page_boundary = [
+        left for left, right in zip(questions, questions[1:])
+        if left.source_pages[-1] != right.source_pages[0]
+    ][:3]
+    passage = next(
+        (question for question in questions if question.content_block_ids and not question.prompt.startswith("Blank ")),
+        next((question for question in questions if question.content_block_ids), None),
+    )
+    block_map = {block["id"]: block["content"] for block in blocks}
+
+    def serialize(items: list[ParsedQuestion]) -> list[dict[str, Any]]:
+        return [{
+            "number": question.number,
+            "prompt": question.prompt,
+            "choices": question.choices,
+            "answer": answers.get(question.number, "UNKNOWN"),
+            "sourcePages": question.source_pages,
+            "contentBlocks": [block_map[block_id] for block_id in question.content_block_ids if block_id in block_map],
+        } for question in items]
+
+    return {
+        "firstThree": serialize(questions[:3]),
+        "columnBoundaryThree": serialize(column_boundary[:3]),
+        "pageBoundaryThree": serialize(page_boundary),
+        "passageQuestion": serialize([passage] if passage else []),
+        "finalThree": serialize(questions[-3:]),
+        "reviewStatus": "PENDING_HUMAN_REVIEW",
+    }
+
+
 def command_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Prepare a local YDS PDF for human review and Exam Pack finalization.")
     parser.add_argument("pdf", type=Path)
@@ -557,8 +803,10 @@ def run_import(args: argparse.Namespace) -> tuple[Path, str]:
     for page in pages:
         (work / "raw-pages" / f"page-{page.number:03d}.txt").write_text(page.raw, encoding="utf-8")
     if args.debug:
+        (work / "layout-debug").mkdir()
         for page in pages:
             print(f"Page {page.number}: {page.chars} chars")
+            write_json(work / "layout-debug" / f"page-{page.number:03d}.json", page.layout_debug)
     if inspection["pdfType"] == "SCANNED":
         manifest = {"toolVersion": TOOL_VERSION, "sourceSha256": source_digest, "status": "OCR_REQUIRED", "inspection": "inspection.json"}
         write_json(work / "manifest.json", manifest)
@@ -604,12 +852,14 @@ def run_import(args: argparse.Namespace) -> tuple[Path, str]:
     }
     write_json(work / "prepared-exam.json", prepared)
     write_json(work / "validation-report.json", {"status": status, "errors": errors, "warnings": warnings})
+    write_json(work / "review-sample.json", build_review_sample(questions, answers, blocks))
 
     print("[6/6] Preparing review")
     write_review(work / "review.html", prepared)
     manifest = {
         "toolVersion": TOOL_VERSION, "sourceSha256": source_digest, "status": status,
-        "artifacts": ["inspection.json", "raw-pages", "normalized-pages", "detected-questions.json", "prepared-exam.json", "validation-report.json", "review.html"],
+        "artifacts": ["inspection.json", "raw-pages", "normalized-pages", "detected-questions.json", "prepared-exam.json", "validation-report.json", "review-sample.json", "review.html"]
+        + (["layout-debug"] if args.debug else []),
     }
     write_json(work / "manifest.json", manifest)
     return work, status

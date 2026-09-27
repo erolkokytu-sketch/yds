@@ -65,12 +65,14 @@ Her import kaynak SHA-256 digest'inden türeyen kararlı bir klasör oluşturur:
 ```text
 work/<import-id>/
 ├── inspection.json
+├── layout-debug/            # yalnız --debug ile
 ├── raw-pages/
 ├── normalized-pages/
 ├── removed-margins.json
 ├── detected-questions.json
 ├── prepared-exam.json
 ├── validation-report.json
+├── review-sample.json
 ├── review.html
 └── manifest.json
 ```
@@ -109,3 +111,15 @@ npm run finalize:exam -- --help
 ```
 
 Detaylı sayfa karakter sayılarını görmek için import komutuna `--debug` ekle.
+
+## Çok sütunlu sayfalar
+
+Importer her sayfayı kelime koordinatlarından `SINGLE_COLUMN`, `MULTI_COLUMN` veya
+`MIXED_LAYOUT` olarak sınıflandırır. Orta bölgede en düşük glyph kesişimi ve dengeli iki
+taraf sağlayan gutter deterministik olarak seçilir. Çok sütunlu içerik solda yukarıdan
+aşağıya, sonra sağda yukarıdan aşağıya okunur; gutter'ı geçen tam genişlik başlıkları tek
+kopya olarak korunur. Yan yana basılan A–E işaretleri ayrı yapısal satırlara çevrilir.
+
+`review-sample.json` ilk üç, sütun sınırındaki üç, sayfa sınırındaki üç, bir pasaj sorusu ve
+son üç soruyu kaynak sayfa/cevap iziyle toplar. `_preparation.errors` içindeki kritik
+extraction hataları `--reviewed` ile dahi geçersiz kılınamaz.
