@@ -8,12 +8,13 @@ import html
 import json
 import re
 import shutil
+import statistics
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
 
-TOOL_VERSION = "1.0.0"
+TOOL_VERSION = "1.1.0"
 MAX_PDF_BYTES = 100 * 1024 * 1024
 OPTION_KEYS = ("A", "B", "C", "D", "E")
 QUESTION_RE = re.compile(r"^\s*(\d{1,3})\s*(?:[.)]|-\s)\s*(.*)$")
@@ -22,7 +23,32 @@ GROUP_RE = re.compile(
     r"(?:for\s+)?questions?\s+(\d{1,3})\s*[\-–]\s*(\d{1,3}).*?(?:passage|following|based)",
     re.I,
 )
-ANSWER_HEADING_RE = re.compile(r"^\s*(?:answer\s*key|cevap\s*anahtar[ıi])\s*$", re.I)
+ANSWER_HEADING_RE = re.compile(
+    r"(?<!\w)(?:answer\s*key|cevap\s*anahtar[ıi])(?=\s|$|[:\-])",
+    re.I,
+)
+ANSWER_PAIR_RE = re.compile(r"(?<!\w)(\d{1,3})\s*(?:[.)-]\s*)?([A-E])(?!\w)", re.I)
+WORKSHEET_FIELD_RE = re.compile(
+    r"^\s*(?:date|name|class|score)\s*:\s*(?:[_\-. ]{2,})?\s*$",
+    re.I,
+)
+WORKSHEET_FIELD_FRAGMENT_RE = re.compile(
+    r"(?:^|\s)(?:date|name|class|score)\s*:\s*[_\-. ]{2,}(?:\s|$)",
+    re.I,
+)
+CLASS_DISTRIBUTION_RE = re.compile(r"^\s*s[ıi]n[ıi]fa\s+da[ğg][ıi]t(?:[ıi]m|m)\s*$", re.I)
+WORKSHEET_SECTION_RE = re.compile(
+    r"^\s*[A-ZÇĞİÖŞÜ][A-ZÇĞİÖŞÜ\s]{1,40}\s+"
+    r"(?:Reading\s+Comprehension|Sentence\s+Completion|Irrelevant\s+Sentence)\s*$"
+)
+WORKSHEET_SECTION_FRAGMENT_RE = re.compile(
+    r"(?:^|\s)[A-ZÇĞİÖŞÜ]{2,}(?:\s+[A-ZÇĞİÖŞÜ]{2,}){0,3}\s+"
+    r"(?:Reading\s+Comprehension|Sentence\s+Completion|Irrelevant\s+Sentence)(?:\s|$)"
+)
+BRANDED_FOOTER_RE = re.compile(
+    r"\b[\w.-]+\.(?:app|com|org|net)\b.*(?:ücretsiz|free\s+sample|örnek\s+k[âa][ğg][ıi]t)",
+    re.I,
+)
 
 
 class ImportFailure(RuntimeError):
@@ -172,12 +198,60 @@ def normalize_pages(pages: list[PageText]) -> tuple[list[PageText], list[dict[st
     return pages, removed
 
 
+def has_answer_sequence(value: str, minimum: int = 3) -> bool:
+    return len(ANSWER_PAIR_RE.findall(value)) >= minimum
+
+
+def contamination_markers(value: str) -> list[str]:
+    markers: list[str] = []
+    if ANSWER_HEADING_RE.search(value):
+        markers.append("answer-key-heading")
+    if has_answer_sequence(value):
+        markers.append("answer-sequence")
+    if (
+        CLASS_DISTRIBUTION_RE.search(value)
+        or WORKSHEET_FIELD_FRAGMENT_RE.search(value)
+        or WORKSHEET_SECTION_FRAGMENT_RE.search(value)
+    ):
+        markers.append("worksheet-metadata")
+    if BRANDED_FOOTER_RE.search(value):
+        markers.append("branded-footer")
+    return markers
+
+
+def is_worksheet_metadata_line(value: str) -> bool:
+    return bool(
+        WORKSHEET_FIELD_RE.fullmatch(value)
+        or CLASS_DISTRIBUTION_RE.fullmatch(value)
+        or WORKSHEET_SECTION_RE.fullmatch(value)
+        or BRANDED_FOOTER_RE.search(value)
+    )
+
+
+def _looks_like_question_start(value: str) -> bool:
+    match = QUESTION_RE.match(value)
+    return bool(match and len(match.group(2).strip()) >= 8 and not has_answer_sequence(value))
+
+
 def page_lines(pages: list[PageText], stop_at_answer_key: bool = True) -> list[tuple[str, int]]:
     result: list[tuple[str, int]] = []
+    suppress_answer_block = False
     for page in pages:
         for line in page.normalized.splitlines():
-            if stop_at_answer_key and ANSWER_HEADING_RE.match(line):
-                return result
+            heading = ANSWER_HEADING_RE.search(line) if stop_at_answer_key else None
+            if heading:
+                prefix = line[:heading.start()].strip()
+                if prefix and not is_worksheet_metadata_line(prefix):
+                    result.append((prefix, page.number))
+                suppress_answer_block = True
+                continue
+            if suppress_answer_block:
+                if _looks_like_question_start(line):
+                    suppress_answer_block = False
+                else:
+                    continue
+            if is_worksheet_metadata_line(line):
+                continue
             result.append((line, page.number))
     return result
 
@@ -269,6 +343,12 @@ def parse_questions(pages: list[PageText]) -> tuple[list[ParsedQuestion], list[d
         non_empty = [value for value in choices.values() if value]
         if len(set(non_empty)) != len(non_empty):
             warnings.append("duplicated-option-text")
+        lengths = [len(value) for value in non_empty]
+        if lengths:
+            median_length = statistics.median(lengths)
+            for key, value in choices.items():
+                if value and len(value) > max(80, median_length * 3):
+                    warnings.append(f"option-{key}-length-outlier")
         prompt = _join(prompt_parts)
         if len(prompt) < 8:
             warnings.append("question-text-short")
@@ -299,7 +379,7 @@ def parse_answer_key(pages: list[PageText], require_heading: bool = False) -> tu
         if not heading:
             return {}, []
         text = text[heading.end():]
-    pairs = re.findall(r"(?<!\w)(\d{1,3})\s*(?:[.)-]\s*)?([A-E])(?!\w)", text, re.I)
+    pairs = ANSWER_PAIR_RE.findall(text)
     answers: dict[int, str] = {}
     warnings: list[str] = []
     for raw_number, raw_answer in pairs:
@@ -384,6 +464,10 @@ def validate_draft(expected: int, questions: list[ParsedQuestion], answers: dict
         errors.append("duplicate-question-number")
     for question in questions:
         warnings.extend(f"question-{question.number}:{warning}" for warning in question.warnings)
+        content = [("prompt", question.prompt), *question.choices.items()]
+        for field, value in content:
+            for marker in contamination_markers(value):
+                errors.append(f"question-{question.number}:{field}-contamination:{marker}")
         missing = [key for key, value in question.choices.items() if not value]
         if missing:
             errors.append(f"question-{question.number}:missing-options:{','.join(missing)}")

@@ -8,6 +8,24 @@ addFormats(ajv);
 const validatePackSchema = ajv.compile(examPackSchema);
 const validateSessionSchema = ajv.compile(examSessionSchema);
 
+const ANSWER_HEADING_RE = /(?:^|[^\p{L}\p{N}_])(?:answer\s*key|cevap\s*anahtar[ıi])(?=\s|$|[:-])/iu;
+const ANSWER_PAIR_RE = /(?:^|[^\p{L}\p{N}_])(\d{1,3})\s*(?:[.)-]\s*)?([A-E])(?=$|[^\p{L}\p{N}_])/giu;
+const WORKSHEET_FIELD_RE = /(?:^|\s)(?:date|name|class|score)\s*:\s*[_\-. ]{2,}(?:\s|$)/iu;
+const CLASS_DISTRIBUTION_RE = /(?:^|\s)s[ıi]n[ıi]fa\s+da[ğg][ıi]t(?:[ıi]m|m)(?:\s|$)/iu;
+const WORKSHEET_SECTION_RE = /(?:^|\s)[A-ZÇĞİÖŞÜ]{2,}(?:\s+[A-ZÇĞİÖŞÜ]{2,}){0,3}\s+(?:Reading\s+Comprehension|Sentence\s+Completion|Irrelevant\s+Sentence)(?:\s|$)/u;
+const BRANDED_FOOTER_RE = /\b[\w.-]+\.(?:app|com|org|net)\b.*(?:ücretsiz|free\s+sample|örnek\s+k[âa][ğg][ıi]t)/iu;
+
+function contaminationMarkers(value) {
+  const markers = [];
+  if (ANSWER_HEADING_RE.test(value)) markers.push("answer-key-heading");
+  const pairs = [...value.matchAll(ANSWER_PAIR_RE)];
+  ANSWER_PAIR_RE.lastIndex = 0;
+  if (pairs.length >= 3) markers.push("answer-sequence");
+  if (WORKSHEET_FIELD_RE.test(value) || CLASS_DISTRIBUTION_RE.test(value) || WORKSHEET_SECTION_RE.test(value)) markers.push("worksheet-metadata");
+  if (BRANDED_FOOTER_RE.test(value)) markers.push("branded-footer");
+  return markers;
+}
+
 function schemaErrors(errors = []) {
   return errors.map((error) => ({
     code: `schema.${error.keyword}`,
@@ -51,6 +69,17 @@ export function validateExamPack(examPack) {
   const groupById = new Map(examPack.questionGroups.map((group) => [group.id, group]));
 
   for (const question of examPack.questions) {
+    const contentFields = [["prompt", question.prompt], ...Object.entries(question.choices).map(([key, value]) => [`choices/${key}`, value])];
+    for (const [field, value] of contentFields) {
+      for (const marker of contaminationMarkers(value)) {
+        errors.push({
+          code: "content_contamination",
+          path: `/questions/${question.id}/${field}`,
+          message: `question content contains ${marker}`,
+        });
+      }
+    }
+
     for (const contentBlockId of question.contentBlockIds) {
       if (!contentIds.has(contentBlockId)) {
         errors.push({

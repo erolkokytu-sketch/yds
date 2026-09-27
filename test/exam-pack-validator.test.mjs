@@ -19,6 +19,29 @@ test("valid sample exam passes", () => {
   assert.deepEqual(validateExamPack(copySample()), { valid: true, errors: [] });
 });
 
+test("answer-sequence contamination fails semantic validation", () => {
+  const exam = copySample();
+  exam.questions[0].choices.E += " 1. B 2. A 3. D 4. B";
+  const result = validateExamPack(exam);
+  assert.equal(result.valid, false);
+  assert.equal(hasError(result, "content_contamination"), true);
+});
+
+test("worksheet footer contamination fails semantic validation", () => {
+  const exam = copySample();
+  exam.questions[0].choices.E += " SAĞLIK Reading Comprehension Date: ______________";
+  const result = validateExamPack(exam);
+  assert.equal(result.valid, false);
+  assert.equal(hasError(result, "content_contamination"), true);
+});
+
+test("ordinary answer and date words remain valid", () => {
+  const exam = copySample();
+  exam.questions[0].prompt = "Which answer best describes the date discussed in the passage?";
+  exam.questions[0].choices.E = "The answer uses an ordinary date word without worksheet metadata.";
+  assert.deepEqual(validateExamPack(exam), { valid: true, errors: [] });
+});
+
 test("missing option fails", () => {
   const exam = copySample();
   delete exam.questions[0].choices.E;

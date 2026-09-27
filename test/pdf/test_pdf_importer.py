@@ -98,6 +98,52 @@ class PdfImporterTests(unittest.TestCase):
         self.assertEqual(answers, {1: "A", 2: "C", 3: "E"})
         self.assertEqual(warnings, [])
 
+    def test_answer_key_contamination_fixture_is_split_from_option(self) -> None:
+        fixture = (ROOT / "fixtures/pdf/answer-key-contamination.txt").read_text()
+        pages = [PageText(1, fixture, fixture)]
+        questions, *_ = parse_questions(pages)
+        answers, warnings = parse_answer_key(pages, require_heading=True)
+        self.assertEqual([question.number for question in questions], [1, 2])
+        self.assertEqual(questions[0].choices["E"], "normal option text")
+        self.assertNotIn("CEVAP ANAHTARI", questions[0].choices["E"])
+        self.assertEqual(answers, {1: "B", 2: "A", 3: "D", 4: "B"})
+        self.assertEqual(warnings, [])
+
+    def test_answer_key_headers_cut_option_content(self) -> None:
+        for heading in ("ANSWER KEY", "Cevap   Anahtarı"):
+            with self.subTest(heading=heading):
+                text = "1. A sufficiently long prompt\n" + "\n".join(five_options()) + f"\n{heading} 1. B 2. A 3. D"
+                questions, *_ = parse_questions([PageText(1, "", text)])
+                self.assertEqual(questions[0].choices["E"], "Choice E has enough text")
+
+    def test_ordinary_answer_and_date_words_are_not_cut(self) -> None:
+        text = (
+            "1. Which answer describes the date mentioned in the passage?\n"
+            "A) The answer contains an ordinary date word\n"
+            "B) second normal choice\nC) third normal choice\nD) fourth normal choice\nE) fifth normal choice"
+        )
+        questions, *_ = parse_questions([PageText(1, "", text)])
+        self.assertIn("date mentioned", questions[0].prompt)
+        self.assertIn("ordinary date word", questions[0].choices["A"])
+
+    def test_answer_sequence_contamination_fails_validation(self) -> None:
+        question = parse_questions([PageText(1, "", "1. Long enough prompt\n" + "\n".join(five_options()))])[0][0]
+        question.choices["E"] += " 1. B 2. A 3. D 4. B"
+        errors, _ = validate_draft(1, [question], {1: "B"}, [])
+        self.assertIn("question-1:E-contamination:answer-sequence", errors)
+
+    def test_worksheet_footer_contamination_fails_validation(self) -> None:
+        question = parse_questions([PageText(1, "", "1. Long enough prompt\n" + "\n".join(five_options()))])[0][0]
+        question.choices["E"] += " SAĞLIK Reading Comprehension Date: ______________"
+        errors, _ = validate_draft(1, [question], {1: "B"}, [])
+        self.assertIn("question-1:E-contamination:worksheet-metadata", errors)
+
+    def test_overly_long_option_creates_warning(self) -> None:
+        text = "1. Long enough prompt\n" + "\n".join(five_options())
+        text = text.replace("E) Choice E has enough text", "E) " + ("unusually long option " * 20))
+        question = parse_questions([PageText(1, "", text)])[0][0]
+        self.assertIn("option-E-length-outlier", question.warnings)
+
     def test_missing_answer_requires_review(self) -> None:
         question = parse_questions([PageText(1, "", "1. Long enough prompt\n" + "\n".join(five_options()))])[0][0]
         errors, _ = validate_draft(1, [question], {}, [])
