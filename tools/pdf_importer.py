@@ -14,10 +14,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
 
-TOOL_VERSION = "1.2.0"
+TOOL_VERSION = "1.2.1"
 MAX_PDF_BYTES = 100 * 1024 * 1024
 OPTION_KEYS = ("A", "B", "C", "D", "E")
-QUESTION_RE = re.compile(r"^\s*(\d{1,3})\s*(?:[.)]|-\s)\s*(.*)$")
+QUESTION_RE = re.compile(r"^\s*(\d{1,3})\s*(?:[.)](?!\d)|-\s)\s*(.*)$")
 OPTION_RE = re.compile(r"^\s*(?:\(([A-E])\)|([A-E])[.)])\s*(.*)$", re.I)
 GROUP_RE = re.compile(
     r"(?:(?:for\s+)?questions?\s+|)(\d{1,3})\s*[. ]*[-–]\s*(\d{1,3})"
@@ -64,9 +64,8 @@ BRANDED_FOOTER_RE = re.compile(
     re.I,
 )
 CROSS_COLUMN_MARKER_RE = re.compile(
-    r"(?:^|\s)\d{1,3}[.)]\s+(?=[A-ZÇĞİÖŞÜ])|"
-    r"(?:^|\s)\d{1,3}\s*[. ]*[-–]\s*\d{1,3}\b.*(?:questions?|sorular)",
-    re.I,
+    r"(?:^|\s)\d{1,3}[.)]\s+(?!(?i:yüzy[ıi]l|century))(?=[A-ZÇĞİÖŞÜ])"
+    r"|(?i:(?:^|\s)\d{1,3}\s*[. ]*[-–]\s*\d{1,3}\b.*(?:questions?|sorular))"
 )
 
 
@@ -312,14 +311,31 @@ def detect_repeated_margins(pages: list[PageText]) -> set[str]:
     return {line for line, count in counts.items() if count >= threshold}
 
 
+def _margin_tokens(repeated: set[str]) -> set[str]:
+    return {
+        token
+        for line in repeated
+        for token in re.findall(r"\w+", line, flags=re.UNICODE)
+        if len(token) >= 2
+    }
+
+
+def _is_margin_composite(line: str, tokens: set[str]) -> bool:
+    parts = [part for part in re.findall(r"\w+", _line_key(line), flags=re.UNICODE) if len(part) >= 2]
+    if len(parts) < 3 or not tokens:
+        return False
+    return sum(part in tokens for part in parts) / len(parts) >= 0.8
+
+
 def normalize_pages(pages: list[PageText]) -> tuple[list[PageText], list[dict[str, Any]]]:
     repeated = detect_repeated_margins(pages)
+    margin_tokens = _margin_tokens(repeated)
     removed: list[dict[str, Any]] = []
     for page in pages:
         kept: list[str] = []
         for line in page.raw.replace("\r\n", "\n").replace("\r", "\n").splitlines():
             compact = re.sub(r"[ \t]+", " ", line).strip()
-            if _line_key(compact) in repeated:
+            if _line_key(compact) in repeated or _is_margin_composite(compact, margin_tokens):
                 removed.append({"page": page.number, "text": compact})
             elif re.fullmatch(r"\d{1,3}", compact) or re.fullmatch(r"di[ğg]er\s+sayfaya\s+ge[çc]iniz\.?", compact, re.I):
                 removed.append({"page": page.number, "text": compact})
@@ -421,6 +437,33 @@ def _join(parts: Iterable[str]) -> str:
     return re.sub(r"\s+", " ", " ".join(part.strip() for part in parts if part.strip())).strip()
 
 
+def _passage_heading_span(
+    lines: list[tuple[str, int]], index: int, limit: int = 3,
+) -> tuple[re.Match[str], int] | None:
+    first = lines[index][0]
+    match = GROUP_RE.search(first)
+    if match:
+        return match, index
+    if not SECTION_RANGE_RE.match(first):
+        return None
+    parts = [first]
+    for cursor in range(index + 1, min(len(lines), index + 1 + limit)):
+        text = lines[cursor][0]
+        if QUESTION_RE.match(text) or OPTION_RE.match(text):
+            break
+        if (
+            text[:1].isupper()
+            and len(text) > 40
+            and not re.search(r"passage|following|questions?|choose|according|soru|par[çc]a", text, re.I)
+        ):
+            break
+        parts.append(text)
+        match = GROUP_RE.search(" ".join(parts))
+        if match:
+            return match, cursor
+    return None
+
+
 def find_passages(
     lines: list[tuple[str, int]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[int, tuple[str, str]], set[int]]:
@@ -429,12 +472,15 @@ def find_passages(
     question_links: dict[int, tuple[str, str]] = {}
     consumed: set[int] = set()
     for index, (line, _) in enumerate(lines):
-        match = GROUP_RE.search(line)
-        if not match:
+        if index in consumed:
             continue
+        span = _passage_heading_span(lines, index)
+        if not span:
+            continue
+        match, heading_end = span
         start, end = int(match.group(1)), int(match.group(2))
         passage_lines: list[str] = []
-        cursor = index + 1
+        cursor = heading_end + 1
         while cursor < len(lines) and GROUP_INSTRUCTION_RE.match(lines[cursor][0]):
             consumed.add(cursor)
             cursor += 1
@@ -448,7 +494,8 @@ def find_passages(
         content = _join(passage_lines)
         if not content:
             continue
-        consumed.add(index)
+        for consumed_index in range(index, heading_end + 1):
+            consumed.add(consumed_index)
         block_id = f"passage-{start}-{end}"
         group_id = f"group-{start}-{end}"
         blocks.append({"id": block_id, "type": "passage", "order": len(blocks) + 1, "content": content})

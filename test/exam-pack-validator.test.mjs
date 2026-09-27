@@ -43,6 +43,13 @@ test("column crossover contamination fails semantic validation", () => {
   assert.equal(hasError(result, "content_contamination"), true);
 });
 
+test("ordinal century is not column crossover", () => {
+  const exam = copySample();
+  exam.questions[0].choices.A += " 15. yüzyıldan başlayarak";
+  exam.questions[0].prompt += " 19. yüzyıl başlarında";
+  assert.deepEqual(validateExamPack(exam), { valid: true, errors: [] });
+});
+
 test("ordinary answer and date words remain valid", () => {
   const exam = copySample();
   exam.questions[0].prompt = "Which answer best describes the date discussed in the passage?";

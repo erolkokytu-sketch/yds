@@ -154,6 +154,16 @@ class PdfImporterTests(unittest.TestCase):
         self.assertEqual([question.number for question in questions], [1, 2, 3])
         self.assertTrue(questions[0].prompt.startswith("Real question"))
 
+    def test_joined_running_header_is_removed(self) -> None:
+        pages = [
+            PageText(index, f"ALPHA HEADER\nBETA FRAGMENT\nUnique body sentence number {index} with enough words")
+            for index in range(1, 5)
+        ]
+        pages.append(PageText(5, "ALPHA HEADER BETA FRAGMENT\n6. A sufficiently different prompt stays"))
+        normalized, _ = normalize_pages(pages)
+        self.assertNotIn("ALPHA HEADER BETA FRAGMENT", normalized[-1].normalized)
+        self.assertIn("sufficiently different prompt", normalized[-1].normalized)
+
     def test_repeated_header_footer_removed(self) -> None:
         pages = [PageText(1, "HEADER\nbody one\nFOOTER"), PageText(2, "HEADER\nbody two\nFOOTER")]
         normalized, removed = normalize_pages(pages)
@@ -211,6 +221,41 @@ class PdfImporterTests(unittest.TestCase):
         question.choices["E"] += " 53. Foreign question text entered this option"
         errors, _ = validate_draft(1, [question], {1: "B"}, [])
         self.assertIn("question-1:E-contamination:column-crossover", errors)
+
+    def test_ordinal_century_is_not_column_crossover(self) -> None:
+        question = parse_questions([PageText(1, "", "1. Long enough prompt\n" + "\n".join(five_options()))])[0][0]
+        question.choices["A"] += " 15. yüzyıldan başlayarak"
+        question.prompt += " 19. yüzyıl başlarında"
+        errors, _ = validate_draft(1, [question], {1: "B"}, [])
+        self.assertFalse(any("column-crossover" in error for error in errors))
+
+    def test_decimal_quantity_does_not_split_question_run(self) -> None:
+        parts = []
+        for number in range(1, 4):
+            if number == 3:
+                parts.append("2.3 million people were living nearby")
+            parts.append(f"{number}. Real question prompt number {number}")
+            parts.extend(five_options(str(number)))
+        questions, *_ = parse_questions([PageText(1, "", "\n".join(parts))])
+        self.assertEqual([question.number for question in questions], [1, 2, 3])
+
+    def test_wrapped_passage_heading_is_linked(self) -> None:
+        lines = [
+            "17-18: For these questions, choose the best",
+            "word or expression to fill the spaces in the",
+            "passage.",
+            "Synthetic passage with a blank (17) ---- here.",
+            "17.",
+            *five_options(),
+            "18.",
+            *five_options("Other"),
+        ]
+        questions, blocks, groups, _ = parse_questions([PageText(1, "", "\n".join(lines))])
+        self.assertEqual([question.number for question in questions], [17, 18])
+        self.assertEqual(len(blocks), 1)
+        self.assertEqual(len(groups), 1)
+        self.assertEqual(questions[0].prompt, "Blank 17")
+        self.assertEqual(questions[0].content_block_ids, questions[1].content_block_ids)
 
     def test_overly_long_option_creates_warning(self) -> None:
         text = "1. Long enough prompt\n" + "\n".join(five_options())

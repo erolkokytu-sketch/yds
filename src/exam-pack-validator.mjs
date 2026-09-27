@@ -14,7 +14,8 @@ const WORKSHEET_FIELD_RE = /(?:^|\s)(?:date|name|class|score)\s*:\s*[_\-. ]{2,}(
 const CLASS_DISTRIBUTION_RE = /(?:^|\s)s[ıi]n[ıi]fa\s+da[ğg][ıi]t(?:[ıi]m|m)(?:\s|$)/iu;
 const WORKSHEET_SECTION_RE = /(?:^|\s)[A-ZÇĞİÖŞÜ]{2,}(?:\s+[A-ZÇĞİÖŞÜ]{2,}){0,3}\s+(?:Reading\s+Comprehension|Sentence\s+Completion|Irrelevant\s+Sentence)(?:\s|$)/u;
 const BRANDED_FOOTER_RE = /\b[\w.-]+\.(?:app|com|org|net)\b.*(?:ücretsiz|free\s+sample|örnek\s+k[âa][ğg][ıi]t)/iu;
-const CROSS_COLUMN_MARKER_RE = /(?:^|\s)\d{1,3}[.)]\s+(?=[A-ZÇĞİÖŞÜ])|(?:^|\s)\d{1,3}\s*[. ]*[-–]\s*\d{1,3}\b.*(?:questions?|sorular)/iu;
+const CROSS_COLUMN_STEM_RE = /(?:^|\s)\d{1,3}[.)]\s+(?!(?:[yY]üzy[ıiİI]l|[cC]entury))(?=[A-ZÇĞİÖŞÜ])/u;
+const CROSS_COLUMN_RANGE_RE = /(?:^|\s)\d{1,3}\s*[. ]*[-–]\s*\d{1,3}\b.*(?:questions?|sorular)/iu;
 
 function contaminationMarkers(value) {
   const markers = [];
@@ -24,7 +25,7 @@ function contaminationMarkers(value) {
   if (pairs.length >= 3) markers.push("answer-sequence");
   if (WORKSHEET_FIELD_RE.test(value) || CLASS_DISTRIBUTION_RE.test(value) || WORKSHEET_SECTION_RE.test(value)) markers.push("worksheet-metadata");
   if (BRANDED_FOOTER_RE.test(value)) markers.push("branded-footer");
-  if (CROSS_COLUMN_MARKER_RE.test(value)) markers.push("column-crossover");
+  if (CROSS_COLUMN_STEM_RE.test(value) || CROSS_COLUMN_RANGE_RE.test(value)) markers.push("column-crossover");
   return markers;
 }
 
