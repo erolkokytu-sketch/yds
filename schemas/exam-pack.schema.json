@@ -25,7 +25,12 @@
     "schemaVersion": { "const": 1 },
     "id": { "$ref": "#/$defs/id" },
     "title": { "$ref": "#/$defs/nonEmptyString" },
-    "year": { "type": "integer", "minimum": 2013, "maximum": 2200 },
+    "year": {
+      "type": "integer",
+      "minimum": 2006,
+      "maximum": 2200,
+      "description": "Supported archival range starts at 2006 because full ÖSYS YDS English papers from 2006–2009 use this same pack schema. 2013 is the modern 80-question YDS format, not a minimum year. Years before 2006 are outside the supported range."
+    },
     "term": { "$ref": "#/$defs/nonEmptyString" },
     "language": { "$ref": "#/$defs/nonEmptyString" },
     "durationMinutes": { "type": "integer", "minimum": 1, "maximum": 1440 },

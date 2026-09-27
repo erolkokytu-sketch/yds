@@ -14,11 +14,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
 
-TOOL_VERSION = "1.2.1"
+TOOL_VERSION = "1.2.2"
 MAX_PDF_BYTES = 100 * 1024 * 1024
 OPTION_KEYS = ("A", "B", "C", "D", "E")
 QUESTION_RE = re.compile(r"^\s*(\d{1,3})\s*(?:[.)](?!\d)|-\s)\s*(.*)$")
-OPTION_RE = re.compile(r"^\s*(?:\(([A-E])\)|([A-E])[.)])\s*(.*)$", re.I)
+OPTION_RE = re.compile(r"^\s*(?:\(([A-E])\)|([A-E])\))\s*(.*)$", re.I)
 GROUP_RE = re.compile(
     r"(?:(?:for\s+)?questions?\s+|)(\d{1,3})\s*[. ]*[-–]\s*(\d{1,3})"
     r".*?(?:passage|following|based|a[şs]a[ğg][ıi]daki\s+par|par[çc]aya\s+g[öo]re)",
@@ -124,7 +124,7 @@ def _load_pdfplumber():
 
 def _split_inline_markers(value: str) -> str:
     """Put side-by-side A-E choices on independent structural lines."""
-    return re.sub(r"(?<!\w)(?=(?:\([A-E]\)|[A-E][.)])\s*)", "\n", value).strip()
+    return re.sub(r"(?<!\w)(?=(?:\([A-E]\)|[A-E]\))\s*)", "\n", value).strip()
 
 
 def _analyze_page_layout(page: Any) -> dict[str, Any]:
@@ -204,6 +204,49 @@ def _analyze_page_layout(page: Any) -> dict[str, Any]:
     return result
 
 
+def _spanning_line_text(words: list[dict[str, Any]], gutter: float) -> list[str]:
+    """Full-width rows whose gutter gap is word spacing, not a column gap."""
+    rows: dict[int, list[dict[str, Any]]] = {}
+    for word in words:
+        rows.setdefault(round(float(word["top"]) / 3), []).append(word)
+    intra: list[float] = []
+    for row in rows.values():
+        ordered = sorted(row, key=lambda item: float(item["x0"]))
+        for left, right in zip(ordered, ordered[1:]):
+            gap = float(right["x0"]) - float(left["x1"])
+            if gap >= 0 and not (float(left["x1"]) <= gutter <= float(right["x0"])):
+                intra.append(gap)
+    median_gap = statistics.median(intra) if intra else 3.0
+    limit = max(8.0, median_gap * 3)
+    lines: list[str] = []
+    for _, row in sorted(rows.items()):
+        crosses = any(float(word["x0"]) < gutter < float(word["x1"]) for word in row)
+        left = [word for word in row if float(word["x1"]) <= gutter]
+        right = [word for word in row if float(word["x0"]) >= gutter]
+        gap = None
+        if left and right:
+            gap = min(float(word["x0"]) for word in right) - max(float(word["x1"]) for word in left)
+        if crosses or (gap is not None and 0 <= gap <= limit):
+            ordered = sorted(row, key=lambda item: float(item["x0"]))
+            text = " ".join(str(word["text"]) for word in ordered).strip()
+            if text:
+                lines.append(text)
+    return lines
+
+
+def _drop_spanning_fragments(value: str, spanning: list[str]) -> str:
+    folded = [_line_key(line) for line in spanning if len(_line_key(line)) >= 8]
+    if not folded:
+        return value
+    kept: list[str] = []
+    for line in value.splitlines():
+        key = _line_key(line)
+        if len(key) >= 8 and any(key in full for full in folded):
+            continue
+        kept.append(line)
+    return "\n".join(kept)
+
+
 def _extract_page_text(page: Any) -> tuple[str, dict[str, Any]]:
     """Read columns top-to-bottom, left first, while retaining layout evidence."""
     debug = _analyze_page_layout(page)
@@ -220,27 +263,41 @@ def _extract_page_text(page: Any) -> tuple[str, dict[str, Any]]:
                 and sum(char.isupper() for char in letters) / len(letters) >= 0.7
             ):
                 crossing_headers.append(value)
+        spanning = _spanning_line_text(words, gutter)
 
         def remove_split_headers(value: str) -> str:
             result: list[str] = []
+            headers = {header.casefold() for header in crossing_headers}
             for line in value.splitlines():
                 tokens = line.split()
-                kept: list[str] = []
+                if not tokens:
+                    continue
+                fragments = []
                 for token in tokens:
-                    compact = re.sub(r"\W", "", token, flags=re.UNICODE)
-                    if any(
-                        len(compact) >= 2 and (header.startswith(compact) or header.endswith(compact))
-                        for header in crossing_headers
-                    ):
-                        continue
-                    kept.append(token)
+                    compact = re.sub(r"\W", "", token, flags=re.UNICODE).casefold()
+                    fragments.append(any(
+                        len(compact) >= 2 and (header == compact or header.startswith(compact) or header.endswith(compact))
+                        for header in headers
+                    ))
+                if all(fragments):
+                    continue
+                kept = [
+                    token for token, fragment in zip(tokens, fragments)
+                    if re.sub(r"\W", "", token, flags=re.UNICODE).casefold() not in headers
+                ]
                 if kept:
                     result.append(" ".join(kept))
             return "\n".join(result)
 
-        left = page.crop((0, 0, gutter, page.height)).extract_text(layout=False, x_tolerance=2, y_tolerance=3) or ""
-        right = page.crop((gutter, 0, page.width, page.height)).extract_text(layout=False, x_tolerance=2, y_tolerance=3) or ""
-        full_width = "\n".join(dict.fromkeys(crossing_headers))
+        left = _drop_spanning_fragments(
+            page.crop((0, 0, gutter, page.height)).extract_text(layout=False, x_tolerance=2, y_tolerance=3) or "",
+            spanning,
+        )
+        right = _drop_spanning_fragments(
+            page.crop((gutter, 0, page.width, page.height)).extract_text(layout=False, x_tolerance=2, y_tolerance=3) or "",
+            spanning,
+        )
+        full_width = "\n".join(dict.fromkeys([*spanning, *crossing_headers]))
         return _split_inline_markers("\n".join(filter(None, (full_width, remove_split_headers(left), remove_split_headers(right))))), debug
     text = page.extract_text(layout=False, x_tolerance=2, y_tolerance=3) or ""
     return _split_inline_markers(text), debug
@@ -573,6 +630,8 @@ def parse_questions(pages: list[PageText]) -> tuple[list[ParsedQuestion], list[d
                 current = (option.group(1) or option.group(2)).upper()
                 choice_parts.setdefault(current, []).append(option.group(3))
             elif current:
+                if re.fullmatch(r"[A-E]\.?", text.strip()):
+                    continue
                 choice_parts[current].append(text)
             else:
                 prompt_parts.append(text)

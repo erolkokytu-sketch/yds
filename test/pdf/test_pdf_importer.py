@@ -64,6 +64,40 @@ class PdfImporterTests(unittest.TestCase):
         inspection, _ = inspect_and_extract(path)
         self.assertEqual(inspection["pageLayouts"]["1"], "SINGLE_COLUMN")
 
+    def test_abbreviation_line_break_is_not_an_option(self) -> None:
+        text = "\n".join([
+            "1. The eruption happened in 79",
+            "A.",
+            "D. remains one of the famous events in that region",
+            "A) I",
+            "B) II",
+            "C) III",
+            "D) IV",
+            "E) V",
+        ])
+        questions, *_ = parse_questions([PageText(1, "", text)])
+        self.assertEqual(questions[0].choices["A"], "I")
+        self.assertEqual(questions[0].choices["E"], "V")
+        self.assertIn("79", questions[0].prompt)
+
+    def test_full_width_instruction_is_not_appended_to_option(self) -> None:
+        path = self.base / "spanning-instruction.pdf"
+        pdf = canvas.Canvas(str(path))
+        pdf.drawString(40, 760, "FULL WIDTH INSTRUCTION THAT CROSSES THE GUTTER AND MUST NOT ENTER AN OPTION")
+        pdf.drawString(54, 680, "1. Left prompt is long enough")
+        for offset, letter in enumerate("ABCDE"):
+            pdf.drawString(54, 640 - offset * 22, f"{letter}) left choice {letter} text")
+        pdf.drawString(340, 680, "2. Right prompt is long enough")
+        for offset, letter in enumerate("ABCDE"):
+            pdf.drawString(340, 640 - offset * 22, f"{letter}) right choice {letter} text")
+        pdf.save()
+        _, pages = inspect_and_extract(path)
+        pages, _ = normalize_pages(pages)
+        questions, *_ = parse_questions(pages)
+        self.assertEqual([question.number for question in questions], [1, 2])
+        self.assertNotIn("GUTTER", questions[0].choices["E"])
+        self.assertIn("left choice E", questions[0].choices["E"])
+
     def test_fixture_b_clean_two_column_layout_and_reading_order(self) -> None:
         path = self.base / "fixture-b.pdf"
         pdf = canvas.Canvas(str(path))

@@ -19,6 +19,19 @@ test("valid sample exam passes", () => {
   assert.deepEqual(validateExamPack(copySample()), { valid: true, errors: [] });
 });
 
+test("archival YDS years from 2006 are valid and earlier years are not", () => {
+  for (const year of [2006, 2007, 2009, 2013]) {
+    const exam = copySample();
+    exam.year = year;
+    assert.equal(validateExamPack(exam).valid, true, `year ${year} should be valid`);
+  }
+  const tooEarly = copySample();
+  tooEarly.year = 2005;
+  const result = validateExamPack(tooEarly);
+  assert.equal(result.valid, false);
+  assert.equal(hasError(result, "schema.minimum"), true);
+});
+
 test("answer-sequence contamination fails semantic validation", () => {
   const exam = copySample();
   exam.questions[0].choices.E += " 1. B 2. A 3. D 4. B";

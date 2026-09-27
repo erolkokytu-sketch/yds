@@ -257,7 +257,7 @@ The same rule applies independently to session schema versions. A pack migration
 ## Documented assumptions
 
 - v1 supports text questions only; images, audio, and rich inline annotations are deferred to v2+.
-- Year starts at 2013 because this schema is for YDS packs established in 2013; other exam families need another schema or later generalization.
+- Year minimum is 2006 so archival ÖSYS YDS English papers can use this schema. 2013 marks the modern 80-question format, not a validity floor. Other exam families still need their own schema.
 - A partial official pack may validate structurally, but product policy must keep it out of full-exam mode.
 - Question numbering need not be contiguous because partial source material can preserve original numbers.
 - Numeric scoring is shown only when both scoring metadata and the final answer key are verified.
