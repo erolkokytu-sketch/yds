@@ -20,7 +20,7 @@ test("valid sample exam passes", () => {
 });
 
 test("archival YDS years from 2006 are valid and earlier years are not", () => {
-  for (const year of [2006, 2007, 2009, 2013]) {
+  for (const year of [2006, 2007, 2008, 2009, 2013, 2026]) {
     const exam = copySample();
     exam.year = year;
     assert.equal(validateExamPack(exam).valid, true, `year ${year} should be valid`);

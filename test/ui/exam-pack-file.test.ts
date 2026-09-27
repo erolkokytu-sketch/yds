@@ -33,6 +33,26 @@ function packFile(value: unknown, name = "valid.ydspack") {
 }
 
 describe("exam pack import", () => {
+  test("legacy and current exam years use the same import validator", async () => {
+    const repo = repository();
+    for (const year of [2006, 2007, 2008, 2009, 2013, 2026]) {
+      const prepared = await prepareExamPackImport(
+        packFile(syntheticPack({ year, id: `year-${year}` }), `year-${year}.ydspack`),
+        repo,
+      );
+      expect(prepared.ok, `year ${year}`).toBe(true);
+    }
+    const rejected = await prepareExamPackImport(
+      packFile(syntheticPack({ year: 2005, id: "year-2005" }), "year-2005.ydspack"),
+      repo,
+    );
+    expect(rejected.ok).toBe(false);
+    if (!rejected.ok) {
+      expect(rejected.error.details.join(" ")).toContain("must be >= 2006");
+      expect(rejected.error.details.join(" ")).not.toContain("2013");
+    }
+  });
+
   test("Import 1 — valid .ydspack previews and installs", async () => {
     const repo = repository();
     const prepared = await prepareExamPackImport(packFile(syntheticPack()), repo);

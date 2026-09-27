@@ -47,9 +47,18 @@ test("production base path is applied and runtime has no external dependency", a
 test("service worker uses versioned updates without clearing application data", async () => {
   const worker = await readFile(new URL("sw.js", dist), "utf8");
   assert.match(worker, /activate/);
+  assert.match(worker, /skipWaiting/);
   assert.match(worker, /caches\.delete/);
   assert.match(worker, /clients\.claim/);
-  assert.doesNotMatch(worker, /localStorage|indexedDB/);
+  assert.doesNotMatch(worker, /localStorage|indexedDB|deleteDatabase/);
+  const bundle = await readFile(new URL("assets/index-DypTCQaY.js", dist), "utf8").catch(async () => {
+    const { readdir } = await import("node:fs/promises");
+    const assets = await readdir(new URL("assets/", dist));
+    const script = assets.find((name) => name.startsWith("index-") && name.endsWith(".js"));
+    return readFile(new URL(`assets/${script}`, dist), "utf8");
+  });
+  assert.match(bundle, /minimum:2006/);
+  assert.doesNotMatch(bundle, /minimum:2013/);
 });
 
 test("application source has no runtime external network client", async () => {
