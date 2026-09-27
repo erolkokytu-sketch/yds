@@ -1,4 +1,6 @@
 # Local/private source material must never be committed.
+YDS_Arsivi/
+private-exam-packs/
 imports/*
 !imports/.gitkeep
 exam-packs/*
